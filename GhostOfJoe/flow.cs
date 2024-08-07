@@ -5,33 +5,33 @@ namespace GhostOfJoe;
 
 public static class Flow {
     public static string CiteFlow(string userMessage) {
-        var flow = ImportFlow();
+        List<List<string>> flow = ImportFlow();
 
-        var match = Regex.Match(userMessage, @"^\d+:\d+$");
+        Match match = Regex.Match(userMessage, @"^\d+:\d+$");
         if (match.Success) {
-            var parts = userMessage.Split(':');
-            var chapter = int.Parse(parts[0]);
-            var verse = int.Parse(parts[1]);
+            string[] parts = userMessage.Split(':');
+            int chapter = int.Parse(parts[0]);
+            int verse = int.Parse(parts[1]);
             return GetVerse(flow, chapter, verse);
         }
 
         match = Regex.Match(userMessage, @"^\d+:\d+-\d+$");
         if (match.Success) {
-            var parts = userMessage.Split(new[] { ':', '-' });
-            var chapter = int.Parse(parts[0]);
-            var startVerse = int.Parse(parts[1]);
-            var endVerse = int.Parse(parts[2]);
+            string[] parts = userMessage.Split(new[] { ':', '-' });
+            int chapter = int.Parse(parts[0]);
+            int startVerse = int.Parse(parts[1]);
+            int endVerse = int.Parse(parts[2]);
             return GetVerses(flow, chapter, startVerse, chapter, endVerse);
         }
 
         match = Regex.Match(userMessage, @"^\d+:\d+\s*-\s*\d+:\d+$");
         if (match.Success)
         {
-            var parts = userMessage.Split(new[] { ':', '-' });
-            var chapter1 = int.Parse(parts[0]);
-            var verse1 = int.Parse(parts[1]);
-            var chapter2 = int.Parse(parts[2]);
-            var verse2 = int.Parse(parts[3]);
+            string[] parts = userMessage.Split(new[] { ':', '-' });
+            int chapter1 = int.Parse(parts[0]);
+            int verse1 = int.Parse(parts[1]);
+            int chapter2 = int.Parse(parts[2]);
+            int verse2 = int.Parse(parts[3]);
             return GetVerses(flow, chapter1, verse1, chapter2, verse2);
         }
 

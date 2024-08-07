@@ -203,7 +203,7 @@ namespace GhostOfJoe {
                 FROM titles 
                 JOIN users  ON users.user_id = titles.user_id
                 WHERE users.discordUser_id = @UserId";
-
+                
                 SQLiteCommand command = connection.CreateCommand();
                 command.CommandText = sql;
                 
@@ -318,10 +318,10 @@ namespace GhostOfJoe {
                 connection.Open();
 
                 // Get the game ID for the specified title
-                long gameId;
-                string gameIdSql = @"SELECT games_id 
-                                     FROM games 
-                                     WHERE title = @Title AND server_id = @ServerId";
+                string gameIdSql = @"
+                    SELECT games_id 
+                    FROM games 
+                    WHERE title = @Title AND server_id = @ServerId;";
 
                 SQLiteCommand gameIdCommand = connection.CreateCommand();
                 gameIdCommand.CommandText = gameIdSql;
@@ -329,29 +329,27 @@ namespace GhostOfJoe {
                 gameIdCommand.Parameters.AddWithValue("@Title", gameTitle);
                 gameIdCommand.Parameters.AddWithValue("@ServerId", guild.Id);
 
-                Object? gameIdResult = gameIdCommand.ExecuteScalar();
-                if (gameIdResult == null) {
+                Object? game_id = gameIdCommand.ExecuteScalar();
+                if (game_id == null) {
                     return null;
                 } // Return empty if no game found
-
-                gameId = (int)gameIdResult;
                 
 
                 // Get categories for the specified game
                 string categoriesSql = @"
                     SELECT categories.categories_id, categories.name 
                     FROM categories
-                    WHERE categories.games_id = @GameId";
+                    WHERE categories.games_id = @GameId;";
 
                 SQLiteCommand categoriesCommand = connection.CreateCommand();
 
                 categoriesCommand.CommandText = categoriesSql;
                 
+                categoriesCommand.Parameters.AddWithValue("@GameId", game_id);
                 
-                categoriesCommand.Parameters.AddWithValue("@GameId", gameId);
-                using (var reader = categoriesCommand.ExecuteReader()) {
+                using (SQLiteDataReader reader = categoriesCommand.ExecuteReader()) {
                     while (reader.Read()) {
-                        long categoryId = reader.GetInt64(0);
+                        int categoryId = reader.GetInt32(0);
                         string categoryName = reader.GetString(1);
 
                         // Check if the user has a score for this category
@@ -443,6 +441,291 @@ namespace GhostOfJoe {
             }
         }
         
+        public static (bool exists, string? dataType) GetSettingDataType(string key) {
+            using (var connection = new SQLiteConnection(ServerDataConnection)) {
+                connection.Open();
+
+                string sql = "SELECT name, type " +
+                             "FROM pragma_table_info('servers') " +
+                             "WHERE name = @Key;";
+
+                SQLiteCommand command = connection.CreateCommand();
+                command.CommandText = sql;
+                
+                command.Parameters.AddWithValue("@Key", key);
+
+                using (var reader = command.ExecuteReader()) {
+                    if (reader.HasRows) {
+                        reader.Read();
+                        return (true, reader["type"].ToString());
+                    }
+                }
+                
+            }
+            return (false, null);
+        }
+
+        public static bool TryParseType(string dataType, string value, out object parsedValue) {
+            parsedValue = null!;
+
+            switch (dataType.ToLower()) {
+                case "integer":
+                    if (int.TryParse(value, out int intValue)) {
+                        parsedValue = intValue;
+                        return true;
+                    }
+                    break;
+                case "real":
+                    if (double.TryParse(value, out double doubleValue)) {
+                        parsedValue = doubleValue;
+                        return true;
+                    }
+                    break;
+                case "text":
+                    parsedValue = value;
+                    return true;
+                case "bit":
+                    if (int.TryParse(value, out int bitValue) && (bitValue == 0 || bitValue == 1)) {
+                        parsedValue = bitValue;
+                        return true;
+                    }
+                    break;
+            }
+            return false;
+        }
+
+        public static bool UpdateSetting(string key, object value, SocketGuild serverId) {
+            using (var connection = new SQLiteConnection(ServerDataConnection)) {
+                connection.Open();
+
+                string sql = $@"UPDATE servers 
+                                SET @Key = @Value 
+                                WHERE server_id = @ServerId;";
+
+                SQLiteCommand command = connection.CreateCommand();
+                command.CommandText = sql;
+                
+                command.Parameters.AddWithValue("@Key", key);
+                command.Parameters.AddWithValue("@Value", value);
+                command.Parameters.AddWithValue("@ServerId", serverId.Id);
+
+                int rowsAffected = command.ExecuteNonQuery();
+                return rowsAffected > 0;
+                
+            }
+        }
+        
+        public static bool AddGame(SocketGuild guild, string title) {
+            using (var connection = new SQLiteConnection(ServerDataConnection)) {
+                connection.Open();
+
+                // Check if the game already exists for the server
+                string checkSql = @"
+                    SELECT COUNT(*)
+                    FROM games
+                    WHERE title = @Title 
+                        AND server_id = @ServerId";
+
+                SQLiteCommand checkCommand = connection.CreateCommand();
+                checkCommand.CommandText = checkSql;
+
+                
+                checkCommand.Parameters.AddWithValue("@Title", title);
+                checkCommand.Parameters.AddWithValue("@ServerId", guild.Id);
+
+                var count = Convert.ToInt32(checkCommand.ExecuteScalar());
+                if (count > 0) {
+                    return false; // Game already exists
+                }
+                
+                
+                
+
+                // Insert new game
+                string insertSql = @"
+                    INSERT INTO games (title, server_id)
+                    VALUES 
+                    (@Title, @ServerId)";
+
+                SQLiteCommand insertCommand = connection.CreateCommand();
+                insertCommand.CommandText = insertSql;
+
+                
+                insertCommand.Parameters.AddWithValue("@Title", title);
+                insertCommand.Parameters.AddWithValue("@ServerId", guild.Id);
+
+                int result = insertCommand.ExecuteNonQuery();
+                return result > 0; // Returns true if the insert was successful
+                
+            }
+        }
+
+        public static bool RemoveGame(SocketGuild guild, string title) {
+            using (var connection = new SQLiteConnection(ServerDataConnection)) {
+                connection.Open();
+
+                // Begin transaction
+                using (var transaction = connection.BeginTransaction()) {
+                    try {
+                        // Delete categories associated with the game
+                        string deleteCategoriesSql = @"
+                            DELETE FROM categories
+                            WHERE games_id = (
+                                SELECT games_id FROM games
+                                WHERE title = @Title AND server_id = @ServerId
+                            )";
+
+                        SQLiteCommand deleteCategoriesCommand = connection.CreateCommand();
+                        deleteCategoriesCommand.CommandText = deleteCategoriesSql;
+                        
+                        deleteCategoriesCommand.Parameters.AddWithValue("@Title", title);
+                        deleteCategoriesCommand.Parameters.AddWithValue("@ServerId", guild.Id);
+                        deleteCategoriesCommand.ExecuteNonQuery();
+                        
+                        // Delete game
+                        string deleteGameSql = @"
+                            DELETE FROM games
+                            WHERE title = @Title AND server_id = @ServerId";
+
+                        SQLiteCommand deleteGameCommand = connection.CreateCommand();
+
+                        deleteGameCommand.CommandText = deleteGameSql;
+
+                        
+                        deleteGameCommand.Parameters.AddWithValue("@Title", title);
+                        deleteGameCommand.Parameters.AddWithValue("@ServerId", guild.Id);
+
+                        int result = deleteGameCommand.ExecuteNonQuery();
+
+                        // Commit transaction if delete was successful
+                        if (result > 0) {
+                            transaction.Commit();
+                            return true; // Returns true if the delete was successful
+                        } else {
+                            transaction.Rollback();
+                            return false;
+                        }
+                        
+                    } catch (Exception ex){
+                        transaction.Rollback();
+                        throw; // Rethrow exception if something goes wrong
+                    }
+                }
+            }
+        }
+        
+        public static bool AddCategory(SocketGuild guild, string gameTitle, string categoryName, string unit, bool higherBetter) {
+            using (var connection = new SQLiteConnection(ServerDataConnection)) {
+                connection.Open();
+
+                // Begin transaction
+                using (var transaction = connection.BeginTransaction()) {
+                    try {
+                        // Get the game ID
+                        string getGameIdSql = @"
+                            SELECT games_id FROM games
+                            WHERE title = @GameTitle 
+                              AND server_id = @ServerId;";
+
+                        int gameId;
+                        using (var getGameIdCommand = new SQLiteCommand(getGameIdSql, connection)) {
+                            getGameIdCommand.Parameters.AddWithValue("@GameTitle", gameTitle);
+                            getGameIdCommand.Parameters.AddWithValue("@ServerId", guild.Id);
+
+                            object? result = getGameIdCommand.ExecuteScalar();
+                            if (result == null) {
+                                throw new InvalidOperationException("Game not found.");
+                            }
+                            gameId = Convert.ToInt32(result);
+                        }
+
+                        // Add category
+                        string addCategorySql = @"
+                            INSERT INTO categories (games_id, name, unit, higherBetter)
+                            VALUES 
+                            (@GameId, @Name, @Unit, @HigherBetter);";
+
+                        using (var addCategoryCommand = new SQLiteCommand(addCategorySql, connection)) {
+                            addCategoryCommand.Parameters.AddWithValue("@GameId", gameId);
+                            addCategoryCommand.Parameters.AddWithValue("@Name", categoryName);
+                            addCategoryCommand.Parameters.AddWithValue("@Unit", unit);
+                            addCategoryCommand.Parameters.AddWithValue("@HigherBetter", higherBetter ? 1 : 0);
+
+                            int result = addCategoryCommand.ExecuteNonQuery();
+                            
+                            // Commit transaction if insert was successful
+                            if (result > 0) {
+                                transaction.Commit();
+                                return true; // Returns true if the insert was successful
+                            } else {
+                                transaction.Rollback();
+                                return false;
+                            }
+                        }
+                    } catch {
+                        transaction.Rollback();
+                        throw; // Rethrow exception if something goes wrong
+                    }
+                }
+            }
+        }
+        
+        public static bool RemoveCategory(SocketGuild guild, string gameTitle, string categoryName) {
+            using (var connection = new SQLiteConnection(ServerDataConnection)) {
+                connection.Open();
+
+                // Begin transaction
+                using (var transaction = connection.BeginTransaction()) {
+                    try {
+                        // Get the category ID
+                        string getCategoryIdSql = @"
+                            SELECT c.categories_id FROM categories c
+                            JOIN games g ON c.games_id = g.games_id
+                            WHERE g.title = @GameTitle 
+                              AND g.server_id = @ServerId 
+                              AND c.name = @CategoryName;";
+
+                        int categoryId;
+                        using (var getCategoryIdCommand = new SQLiteCommand(getCategoryIdSql, connection)) {
+                            getCategoryIdCommand.Parameters.AddWithValue("@GameTitle", gameTitle);
+                            getCategoryIdCommand.Parameters.AddWithValue("@ServerId", guild.Id);
+                            getCategoryIdCommand.Parameters.AddWithValue("@CategoryName", categoryName);
+
+                            var result = getCategoryIdCommand.ExecuteScalar();
+                            if (result == null) {
+                                throw new InvalidOperationException("Category not found.");
+                            }
+                            categoryId = Convert.ToInt32(result);
+                        }
+
+                        // Remove category
+                        string removeCategorySql = @"
+                            DELETE FROM categories
+                            WHERE categories_id = @CategoryId";
+
+                        using (var removeCategoryCommand = new SQLiteCommand(removeCategorySql, connection)) {
+                            removeCategoryCommand.Parameters.AddWithValue("@CategoryId", categoryId);
+
+                            int result = removeCategoryCommand.ExecuteNonQuery();
+                            
+                            // Commit transaction if delete was successful
+                            if (result > 0) {
+                                transaction.Commit();
+                                return true; // Returns true if the delete was successful
+                            } else {
+                                transaction.Rollback();
+                                return false;
+                            }
+                        }
+                    } catch {
+                        transaction.Rollback();
+                        throw; // Rethrow exception if something goes wrong
+                    }
+                }
+            }
+        }
+
+        
         private static void LoadConfig() {
             // Check if the config file exists
             if (!File.Exists(configPath)) {
@@ -470,6 +753,9 @@ namespace GhostOfJoe {
         
         private const string ServerDataConnection = "Data Source=ServerData.db;Version=3;";
     }
+    
+    
+
     
 
     public class Config {
