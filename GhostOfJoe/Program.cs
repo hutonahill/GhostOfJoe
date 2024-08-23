@@ -35,8 +35,8 @@ namespace GhostOfJoe {
         private static IConfiguration _configuration;
         private static DiscordSocketClient _client;
         
-        private const string DISCORD_KEY =
-            "MTI2OTIxNDkxNjA3NDY3MjE5OQ.GxhXiw.Abg1sicQ0VjS2A-19ty6o0XCyE5-mprGU4dTo8";
+        //TODO need to securely import this value.
+        private static string DISCORD_KEY = "<API KEY>";
         
         // a logging channel on my personal discord
         private static readonly ulong LoggingChannel = 1269384832064950384;
@@ -60,6 +60,8 @@ namespace GhostOfJoe {
         private static InteractionService _interactionService;
         
         public static async Task Main(string[] args) {
+
+            DISCORD_KEY = Environment.GetEnvironmentVariable("API_KEY") ?? throw new InvalidOperationException();
             
             JsonSettings = new JsonSerializerSettings {
                 Formatting = Formatting.Indented, // For readable output
