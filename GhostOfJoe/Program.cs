@@ -1,17 +1,17 @@
 ﻿
-using System.Data.SQLite;
+
 using System.Globalization;
 using System.Reflection;
-using System.Reflection.Metadata;
+using System.Runtime.InteropServices.JavaScript;
 using Discord.Interactions;
 using Discord.WebSocket;
 using Newtonsoft.Json;
 using Microsoft.Extensions.Configuration;
 
-using Microsoft.Extensions.DependencyInjection;
+
 
 using Discord;
-using Discord.Net;
+
 
 
 namespace GhostOfJoe {
@@ -188,18 +188,32 @@ namespace GhostOfJoe {
         }
         
         public static async Task LogAsync(LogMessage log) {
-            Console.WriteLine(log);
+            
 
             ITextChannel? channel = _client.GetChannel(LoggingChannel) as ITextChannel;
-        
+
+            string ErrorMsg = "## Log: ";
+
+            if (log.Message != "") {
+                ErrorMsg += $"\n ### Log Message: \n` {log.Message} `";
+            }
+
+            if (log.Exception != null) {
+                ErrorMsg += $"\n### Exception Type: \n`{log.Exception.GetType().Name} ` " +
+                            $"\n### Exception Message: \n```\n{log.Exception.Message}\n```" +
+                            $"\n### Callstack: \n```\n{log.Exception.StackTrace}\n```";
+            }
+            
             if (log.Severity == LogSeverity.Critical) {
                 SocketUser admin = _client.GetUser(AdminUser);
             
-                await channel?.SendMessageAsync($"{admin.Mention}: `{log.ToString()}`")!;
+                await channel?.SendMessageAsync($"{admin.Mention}: \n{ErrorMsg}")!;
             }
             else {
-                await channel?.SendMessageAsync(log.ToString())!;
+                await channel?.SendMessageAsync(ErrorMsg)!;
             }
+            
+            Console.WriteLine(ErrorMsg);
         }
         
         

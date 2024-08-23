@@ -1,32 +1,44 @@
 ﻿using System.Data.SQLite;
+using Discord;
 using Discord.WebSocket;
 
 namespace GhostOfJoe;
 
 public static class DataHandler {
+
+    private const string DatabasePath = "C:\\Users\\evanriker\\Desktop\\GhostOfJoe\\hostOfJoe\\GhostOfJoe\\bin\\ServerData.db";
     
-    private const string ServerDataConnection = "Data Source=ServerData.db;Version=3;";
+    private const string ServerDataConnection = $"Data Source={DatabasePath};Version=3;";
     
-    public static List<string> GetGames(ulong guildID) {
+    public static async Task<List<string>> GetGames(ulong guildID) {
+        string FilePath = "";
         var games = new List<string>();
+        
+        try {
+            using (SQLiteConnection connection = new SQLiteConnection(ServerDataConnection)) {
+                connection.Open();
 
-        using (var connection = new SQLiteConnection(ServerDataConnection)) {
-            connection.Open();
+                FilePath = connection.FileName;
 
-            string sql = @"SELECT title 
+                string sql = @"SELECT title 
                            FROM games
                            WHERE server_id = @serverId";
 
-            SQLiteCommand command = connection.CreateCommand();
-            command.CommandText = sql;
+                SQLiteCommand command = connection.CreateCommand();
+                command.CommandText = sql;
 
-            command.Parameters.AddWithValue("@serverId", guildID);
-                
-            using (SQLiteDataReader reader = command.ExecuteReader()) {
-                while (reader.Read()) {
-                    games.Add(reader.GetString(0));
+                command.Parameters.AddWithValue("@serverId", guildID);
+
+                using (SQLiteDataReader reader = command.ExecuteReader()) {
+                    while (reader.Read()) {
+                        games.Add(reader.GetString(0));
+                    }
                 }
             }
+        }
+        catch (SQLiteException ex) {
+            await Program.LogAsync(new LogMessage(LogSeverity.Error, nameof(GetGames), FilePath));
+            throw;
         }
         return games;
     }
@@ -78,10 +90,10 @@ public static class DataHandler {
             JOIN users  ON users.user_id = titles.user_id
             WHERE users.discordUser_id = @UserId";
             
-            SQLiteCommand command = connection.CreateCommand();
-            command.CommandText = sql;
+            SQLiteCommand command = connection.CreateCommand(sql);
             
             command.Parameters.AddWithValue("@UserId", member.Id);
+            
             using (var reader = command.ExecuteReader()) {
                 while (reader.Read()) {
                     titles.Add(reader.GetString(0));
@@ -125,8 +137,8 @@ public static class DataHandler {
         }
     }
     
-    public static void AddTitle(SocketGuildUser member, string title) {
-        using (var connection = new SQLiteConnection(ServerDataConnection)) {
+    public static async Task AddTitle(SocketGuildUser member, string title) {
+        await using (var connection = new SQLiteConnection(ServerDataConnection)) {
             connection.Open();
 
             // First, check if the member already exists in the users table
@@ -156,9 +168,7 @@ public static class DataHandler {
                 VALUES (@DiscordUserId, @ServerId);
                 SELECT last_insert_rowid();";
 
-                SQLiteCommand insertCommand = connection.CreateCommand();
-                insertCommand.CommandText = insertUserSql;
-
+                SQLiteCommand insertCommand = connection.CreateCommand(insertUserSql);
                 
                 insertCommand.Parameters.AddWithValue("@DiscordUserId", discordUserId);
                 insertCommand.Parameters.AddWithValue("@ServerId", serverId);
@@ -180,92 +190,19 @@ public static class DataHandler {
             {
                 insertTitleCommand.Parameters.AddWithValue("@Title", title);
                 insertTitleCommand.Parameters.AddWithValue("@UserId", userId);
-                insertTitleCommand.ExecuteNonQuery();
-            }
-        }
-    }
+                int numRowsChanged = insertTitleCommand.ExecuteNonQuery();
 
-    public static List<string>? GetCategoriesWithScores(SocketUser member, SocketGuild guild, string gameTitle) {
-        var result = new List<string>();
-
-        using (var connection = new SQLiteConnection(ServerDataConnection)) {
-            connection.Open();
-
-            // Get the game ID for the specified title
-            string gameIdSql = @"
-                SELECT game_id 
-                FROM games 
-                WHERE title = @Title AND server_id = @ServerId;";
-
-            SQLiteCommand gameIdCommand = connection.CreateCommand();
-            gameIdCommand.CommandText = gameIdSql;
-            
-            gameIdCommand.Parameters.AddWithValue("@Title", gameTitle);
-            gameIdCommand.Parameters.AddWithValue("@ServerId", guild.Id);
-
-            Object? game_id = gameIdCommand.ExecuteScalar();
-            if (game_id == null) {
-                return null;
-            } // Return empty if no game found
-            
-
-            // Get categories for the specified game
-            string categoriesSql = @"
-                SELECT categories.category_id, categories.name 
-                FROM categories
-                WHERE categories.game_id = @GameId;";
-
-            SQLiteCommand categoriesCommand = connection.CreateCommand();
-
-            categoriesCommand.CommandText = categoriesSql;
-            
-            categoriesCommand.Parameters.AddWithValue("@GameId", game_id);
-            
-            using (SQLiteDataReader reader = categoriesCommand.ExecuteReader()) {
-                while (reader.Read()) {
-                    int categoryId = reader.GetInt32(0);
-                    string categoryName = reader.GetString(1);
-
-                    // Check if the user has a score for this category
-                    string scoreSql = @"
-                        SELECT scores.value
-                        FROM scores 
-                        JOIN users ON scores.user_id = users.user_id
-                        WHERE scores.category_id = @CategoryId 
-                            AND users.discordUser_id = @DiscordUserId 
-                            AND users.server_id = @ServerId";
-
-                    SQLiteCommand scoreCommand = connection.CreateCommand();
-                    scoreCommand.CommandText = scoreSql;
-
-
-                    scoreCommand.Parameters.AddWithValue("@CategoryId", categoryId);
-                    scoreCommand.Parameters.AddWithValue("@DiscordUserId", member.Id);
-                    scoreCommand.Parameters.AddWithValue("@ServerId", guild.Id);
-
-                    object? scoreResult = scoreCommand.ExecuteScalar();
-
-                    string output;
-
-                    // Format the result
-                    if (scoreResult != null) {
-                        output = ($"**{categoryName}** {member.Username}: {scoreResult}");
-                    }
-                    else {
-                        output = $"**{categoryName}**";
-                    }
-
-                    result.Add(output);
+                if (numRowsChanged != 1) {
+                    await Program.LogAsync(new LogMessage(LogSeverity.Critical, nameof(AddTitle),
+                        $"An insert of a single title effected more than one row." +
+                        $"Attempting to add the title`{title}` to `{member.Username}`(`{member.Id}`) on the Table " +
+                        $"`{member.Guild.Name}`(`{member.Guild.Id}`)"));
                 }
             }
         }
+    }
 
-        return result;
-    }
     
-    public static List<string>? GetCategoriesWithScores(SocketGuildUser member, string gameTitle) {
-        return GetCategoriesWithScores(member, member.Guild, gameTitle);
-    }
     
     public static Dictionary<string, string> GetServerSettings(SocketGuild guild) {
         var settings = new Dictionary<string, string>();
@@ -273,7 +210,7 @@ public static class DataHandler {
         using (var connection = new SQLiteConnection(ServerDataConnection)) {
             connection.Open();
 
-            // Query to get server settings
+            // Query to get Table settings
             string sql = "SELECT * FROM servers WHERE server_id = @ServerId";
 
             SQLiteCommand command = connection.CreateCommand();
@@ -299,7 +236,7 @@ public static class DataHandler {
         using(var connection = new SQLiteConnection(ServerDataConnection)) {
             connection.Open();
             
-            // Query to insert a new server
+            // Query to insert a new Table
             string sql = @"
                 INSERT INTO servers (server_id, safeFlow)
                 VALUES (@ServerId, @SafeFlow)";
@@ -393,7 +330,7 @@ public static class DataHandler {
         using (var connection = new SQLiteConnection(ServerDataConnection)) {
             connection.Open();
 
-            // Check if the game already exists for the server
+            // Check if the game already exists for the Table
             string checkSql = @"
                 SELECT COUNT(*)
                 FROM games
@@ -480,7 +417,7 @@ public static class DataHandler {
                         return false;
                     }
                     
-                } catch (Exception ex){
+                } catch (Exception){
                     transaction.Rollback();
                     throw; // Rethrow exception if something goes wrong
                 }
@@ -500,18 +437,19 @@ public static class DataHandler {
                         SELECT game_id FROM games
                         WHERE title = @GameTitle 
                           AND server_id = @ServerId;";
-
-                    int gameId;
-                    using (var getGameIdCommand = new SQLiteCommand(getGameIdSql, connection)) {
-                        getGameIdCommand.Parameters.AddWithValue("@GameTitle", gameTitle);
-                        getGameIdCommand.Parameters.AddWithValue("@ServerId", guildId);
-
-                        object? result = getGameIdCommand.ExecuteScalar();
-                        if (result == null) {
-                            throw new InvalidOperationException("Game not found.");
-                        }
-                        gameId = Convert.ToInt32(result);
+                    
+                    SQLiteCommand getGameIdCommand = connection.CreateCommand(getGameIdSql);
+                    
+                    
+                    getGameIdCommand.Parameters.AddWithValue("@GameTitle", gameTitle);
+                    getGameIdCommand.Parameters.AddWithValue("@ServerId", guildId);
+                    
+                    object? result = getGameIdCommand.ExecuteScalar();
+                    if (result == null) {
+                        throw new InvalidOperationException("Game not found.");
                     }
+                    int gameId = Convert.ToInt32(result);
+                    
 
                     // Add category
                     string addCategorySql = @"
@@ -543,6 +481,140 @@ public static class DataHandler {
             }
         }
     }
+    
+    
+    public static async Task<List<string>?> GetCategoriesWithScores(IUser member, IGuild guild, string gameTitle) {
+        var result = new List<string>();
+
+        await AddMember(guild, member);
+
+        using (var connection = new SQLiteConnection(ServerDataConnection)) {
+            connection.Open();
+
+            // Get the game ID for the specified title
+            string gameIdSql = @"
+                SELECT game_id 
+                FROM games 
+                WHERE title = @Title AND server_id = @ServerId;";
+
+            SQLiteCommand gameIdCommand = connection.CreateCommand();
+            gameIdCommand.CommandText = gameIdSql;
+            
+            gameIdCommand.Parameters.AddWithValue("@Title", gameTitle);
+            gameIdCommand.Parameters.AddWithValue("@ServerId", guild.Id);
+
+            Object? game_id = gameIdCommand.ExecuteScalar();
+            if (game_id == null) {
+                return null;
+            } // Return empty if no game found
+            
+
+            // Get categories for the specified game
+            string categoriesSql = @"
+                SELECT categories.category_id, categories.name 
+                FROM categories
+                WHERE categories.game_id = @GameId;";
+
+            SQLiteCommand categoriesCommand = connection.CreateCommand();
+
+            categoriesCommand.CommandText = categoriesSql;
+            
+            categoriesCommand.Parameters.AddWithValue("@GameId", game_id);
+            
+            using (SQLiteDataReader reader = categoriesCommand.ExecuteReader()) {
+                while (reader.Read()) {
+                    int categoryId = reader.GetInt32(0);
+                    string categoryName = reader.GetString(1);
+
+                    // Check if the user has a score for this category
+                    string scoreSql = @"
+                        SELECT scores.value
+                        FROM scores 
+                        JOIN users ON scores.user_id = users.user_id
+                        WHERE scores.category_id = @CategoryId 
+                            AND users.discordUser_id = @DiscordUserId 
+                            AND users.server_id = @ServerId";
+
+                    SQLiteCommand scoreCommand = connection.CreateCommand();
+                    scoreCommand.CommandText = scoreSql;
+
+
+                    scoreCommand.Parameters.AddWithValue("@CategoryId", categoryId);
+                    scoreCommand.Parameters.AddWithValue("@DiscordUserId", member.Id);
+                    scoreCommand.Parameters.AddWithValue("@ServerId", guild.Id);
+
+                    object? scoreResult = scoreCommand.ExecuteScalar();
+
+                    string output;
+
+                    // Format the result
+                    if (scoreResult != null) {
+                        output = ($"**{categoryName}** {member.Username}: {scoreResult}");
+                    }
+                    else {
+                        output = $"**{categoryName}**";
+                    }
+
+                    result.Add(output);
+                }
+            }
+        }
+
+        return result;
+    }
+    
+    public static async Task<List<string>?> GetCategoriesWithScores(IGuildUser member, string gameTitle) {
+        return await GetCategoriesWithScores(member, member.Guild, gameTitle);
+    }
+    
+    public static List<string>? GetCategories(IGuild guild, string gameTitle) {
+        var result = new List<string>();
+
+        using (var connection = new SQLiteConnection(ServerDataConnection)) {
+            connection.Open();
+
+            // Get the game ID for the specified title
+            string gameIdSql = @"
+                SELECT game_id 
+                FROM games 
+                WHERE title = @Title AND server_id = @ServerId;";
+
+            SQLiteCommand gameIdCommand = connection.CreateCommand();
+            gameIdCommand.CommandText = gameIdSql;
+            
+            gameIdCommand.Parameters.AddWithValue("@Title", gameTitle);
+            gameIdCommand.Parameters.AddWithValue("@ServerId", guild.Id);
+
+            Object? game_id = gameIdCommand.ExecuteScalar();
+            if (game_id == null) {
+                return null;
+            } // Return empty if no game found
+            
+
+            // Get categories for the specified game
+            string categoriesSql = @"
+                SELECT categories.category_id, categories.name 
+                FROM categories
+                WHERE categories.game_id = @GameId;";
+
+            SQLiteCommand categoriesCommand = connection.CreateCommand();
+
+            categoriesCommand.CommandText = categoriesSql;
+            
+            categoriesCommand.Parameters.AddWithValue("@GameId", game_id);
+            
+            using (SQLiteDataReader reader = categoriesCommand.ExecuteReader()) {
+                while (reader.Read()) {
+                    string categoryName = reader.GetString(1);
+                    
+                    result.Add(categoryName);
+                }
+            }
+        }
+
+        return result;
+    }
+    
     
     public static bool RemoveCategory(SocketGuild guild, string gameTitle, string categoryName) {
         using (var connection = new SQLiteConnection(ServerDataConnection)) {
@@ -604,7 +676,7 @@ public static class DataHandler {
         }
     }
 
-    public static bool GetSafeFlow(ulong guildId) {
+    public static async Task<bool> GetSafeFlow(IGuild guild) {
         bool output = true;
         
         using (var connection = new SQLiteConnection(ServerDataConnection)) {
@@ -616,13 +688,82 @@ public static class DataHandler {
 
             SQLiteCommand command = connection.CreateCommand(sql);
 
-            command.Parameters.AddWithValue("@serverId", guildId);
+            command.Parameters.AddWithValue("@serverId", guild.Id);
 
+            using (SQLiteDataReader result = command.ExecuteReader()) {
+                int safeFlow = Convert.ToInt32(result);
+
+                if (safeFlow == 1) {
+                    output = true;
+                }
+                else if (safeFlow == 0) {
+                    output = false;
+                }
+                else {
+                    await Program.LogAsync(new LogMessage(LogSeverity.Critical, nameof(GetSafeFlow),
+                        $"so... um your SQLite trigger didnt work. The safeFlow value for the guild " +
+                        $"{guild.Name} ({guild.Id}) is {safeFlow}, not 0 or 1."));
+                }
+            }
         }
 
         return output;
     }
 
+    public static async Task AddMember(IGuildUser member) {
+        
+        await AddMember(member.Guild, member);
+    }
+
+    public static async Task AddMember(IGuild guild, IUser member) {
+        using (var connection = new SQLiteConnection(ServerDataConnection)) {
+            connection.Open();
+
+            string hasMemberSql = @"SELECT COUNT(*)
+                                    FROM users
+                                    WHERE server_id = @guildId
+                                        AND discordUser_id = @memberId;";
+            
+
+            SQLiteCommand hasMemberCommand = connection.CreateCommand(hasMemberSql);
+
+            hasMemberCommand.Parameters.AddWithValue("@guildId", guild.Id);
+            hasMemberCommand.Parameters.AddWithValue("@memberId", member.Id);
+
+            object? hasMemberResult = hasMemberCommand.ExecuteScalar();
+
+            int numUsers = Convert.ToInt32(hasMemberResult);
+
+            
+            if (numUsers == 0) {
+                string insertSql = @"INSERT INTO users (discordUser_id, server_id) 
+                                   VALUES 
+                                   (@memberId, @guildId);";
+
+                SQLiteCommand insertCommand = connection.CreateCommand(insertSql);
+
+                insertCommand.Parameters.AddWithValue("@memberId", member.Id);
+                insertCommand.Parameters.AddWithValue("@guildId", guild.Id);
+
+                object reader = insertCommand.ExecuteNonQuery();
+
+                int numEffected = Convert.ToInt32(reader);
+
+                if (numEffected != 1) {
+                    await Program.LogAsync(new LogMessage(LogSeverity.Critical, nameof(AddMember),
+                        $"Inserting a new user effected more than one row. Server: `{guild.Name}`(`{guild.Id}`) " +
+                        $"Member: `{member.Username}`(`{member.Id}`)"));
+                }
+            }
+            else if (numUsers != 1) {
+                await Program.LogAsync(new LogMessage(LogSeverity.Critical, nameof(AddMember),
+                    $"Duplicate user found. Server `{guild.Name}`(`{guild.Id}`) contains {numUsers} references to " +
+                    $"The user `{member.Username}`(`{member.Id}`)"));
+            }
+
+        }
+    }
+    
     private static SQLiteCommand CreateCommand(this SQLiteConnection connection, string sql) {
         SQLiteCommand output = connection.CreateCommand();
         output.CommandText = sql;
