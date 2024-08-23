@@ -5,7 +5,9 @@ using Discord.WebSocket;
 namespace GhostOfJoe;
 
 public static class DataHandler {
-
+    
+    
+    //TODO this should be imported from an external file. or point to the same folder as the exe.
     private const string DatabasePath = "C:\\Users\\evanriker\\Desktop\\GhostOfJoe\\hostOfJoe\\GhostOfJoe\\bin\\ServerData.db";
     
     private const string ServerDataConnection = $"Data Source={DatabasePath};Version=3;";
