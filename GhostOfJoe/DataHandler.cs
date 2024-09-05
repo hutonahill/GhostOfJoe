@@ -1,775 +1,781 @@
-﻿using System.Data.SQLite;
+﻿using System.Data.Entity;
+using System.Diagnostics;
+using System.Reflection;
 using Discord;
 using Discord.WebSocket;
+using GhostOfJoe.Data;
+using GhostOfJoe.Models;
+
 
 namespace GhostOfJoe;
 
 public static class DataHandler {
     
+    /// <summary>
+    /// Gets a users ID in the database.
+    /// </summary>
+    /// <param name="user">The User to find</param>
+    /// <param name="context">Optional, Lets you avoid creating a new instance of context.</param>
+    /// <returns>The database userId or null if user is not in database.</returns>
+    private static async Task<int?> getUserIdAsync(this IGuildUser user, ServerDataContext? context = null) {
+        return await getUserIdAsync(user.Guild, user, context);
+    }
     
-    //TODO this should be imported from an external file. or point to the same folder as the exe.
-    private const string DatabasePath = "C:\\Users\\evanriker\\Desktop\\GhostOfJoe\\hostOfJoe\\GhostOfJoe\\bin\\ServerData.db";
+    /// <summary>
+    /// Gets a users ID in the database. Returns null if there is no such user.
+    /// </summary>
+    /// <param name="guild">The guild the user is in</param>
+    /// <param name="user">The user to find</param>
+    /// <param name="context">Optional, Lets you avoid creating a new instance of context.</param>
+    /// <returns>The database userId or null if user is not in database.</returns>
+    private static async Task<int?> getUserIdAsync(IGuild guild, IUser user, ServerDataContext? context = null) {
+        bool CreatedContext = false;
+        if (context == null) {
+            context = new ServerDataContext();
+            CreatedContext = true;
+        }
+
+        int? result;
+        
+        List<int> userIdResult = context.Users
+            .Where(u => u.server_id == guild.Id && u.discordUser_id == user.Id)
+            .Select(u => u.user_id).ToList();
+
+        if (await userIdResult.OnlyOneAsync($"Got more than one User for discordUserId == `{user.Id}` " +
+                                       $"and server_id == `{guild.Id}`")) {
+            
+        }
+
+        if (userIdResult.Count > 1) {
+            // TODO: we have a problem, If this query returns more than once result somethings wrong with the database.
+            if (CreatedContext) {
+                context.Dispose();
+            }
+            result = null;
+        }
+        else if (userIdResult.Count == 0) {
+            
+            result = null;
+        }
+        else {
+            
+            result = userIdResult.First();
+        }
+        
+        
+        if (CreatedContext) {
+            context.Dispose();
+        }
+        return result;
+    }
     
-    private const string ServerDataConnection = $"Data Source={DatabasePath};Version=3;";
+    /// <summary>
+    /// If a user does not exist within the database, add it to the database.
+    /// </summary>
+    /// <param name="guild">The server the user is a part of</param>
+    /// <param name="user">The user to add</param>
+    /// <param name="context">Optional, Lets you avoid creating a new instance of context.</param>
+    private static async Task AddUser(this IGuild guild, IUser user, ServerDataContext? context = null) {
+        bool CreatedContext = false;
+        if (context == null) {
+            context = new ServerDataContext();
+            CreatedContext = true;
+        }
+
+        if (await getUserIdAsync(guild, user, context) == null) {
+            Users newUser = new Users();
+
+            newUser.discordUser_id = user.Id;
+            newUser.server_id = guild.Id;
+        
+            context.Users.Add(newUser);
+            await context.SaveChangesAsync();
+        }
+        
+        
+        if (CreatedContext) {
+            await context.DisposeAsync();
+        }
+    }
     
-    public static async Task<List<string>> GetGames(ulong guildID) {
-        string FilePath = "";
-        var games = new List<string>();
+    /// <summary>
+    /// If a user does not exist within the database, add it to the database.
+    /// </summary>
+    /// <param name="member">The member to add</param>
+    /// <param name="context">Optional, Lets you avoid creating a new instance of context.</param>
+    private static async Task AddUser(this IGuildUser member, ServerDataContext? context = null) {
+        await member.Guild.AddUser(member, context);
+    }
+    
+    /// <summary>
+    /// Verifies that a list contains only one value. Used when selecting a single value out of a database.
+    ///
+    /// Will warn administrators if there is more than one value in the list.
+    /// </summary>
+    /// <param name="list">The list to be checked</param>
+    /// <param name="message">A customizable message to send to the admins</param>
+    /// <typeparam name="T"></typeparam>
+    /// <returns>Returns true if the list contains a single item.</returns>
+    private static async Task<bool> OnlyOneAsync<T>(this List<T> list, string? message = null) {
+        if (list.Count == 0) {
+            return false;
+        }
+        else if (list.Count > 1) {
+            message ??= $"List containing `{typeof(T).FullName}` was supposed to contain 1 or 0 items. It contained {list.Count}." +
+                        $"\n ```{list}```";
+
+            await Program.LogAsync(LogSeverity.Critical, message);
+            return false;
+        }
+
+        return true;
+    }
+    
+    /// <summary>
+    /// Gets a game from a server
+    /// </summary>
+    /// <param name="guild">The server with the game</param>
+    /// <param name="title">The title of the game.</param>
+    /// <param name="context">Optional, Lets you avoid creating a new instance of context.</param>
+    /// <returns>the game or null if none was found</returns>
+    private static async Task<Games?> GetGame(this IGuild guild, string title, ServerDataContext? context = null) {
+        // handle the optional context
+        bool CreatedContext = false;
+        if (context == null) {
+            context = new ServerDataContext();
+            CreatedContext = true;
+        }
+        
+        // create an output var.
+        Games? output = null;
+        
+        // try to get the game
+        List<Games> gamesList = context.Games
+            .Where(g => g.title == title && g.server_id == guild.Id)
+            .ToList();
+        
+        
+        // if only one result returned, send it to the user.
+        if (await gamesList.OnlyOneAsync($"Found multiple Games with the title `{title} on server {guild.Name}(`")) {
+            output = gamesList.First();
+        }
+        
+        
+        // if we created the context, dispose of it.
+        if (CreatedContext) {
+            await context.DisposeAsync();
+        }
+        
+        return output;
+    }
+
+    /// <summary>
+    /// Returns a category given a game and a category name
+    /// </summary>
+    /// <param name="game">Game that contains the category</param>
+    /// <param name="name">The name of the category</param>
+    /// <param name="context">Optional, Lets you avoid creating a new instance of context.</param>
+    /// <returns>The category or null if none was found</returns>
+    private static async Task<Categories?> GetCategory(this Games game, string name, ServerDataContext? context = null) {
+        // handle the optional context
+        bool CreatedContext = false;
+        
+        if (context == null) {
+            context = new ServerDataContext();
+            CreatedContext = true;
+        }
+
+        Categories? output = null;
+
+        List<Categories> categoriesList = context.Categories
+            .Where(c => c.game == game && c.name == name)
+            .ToList();
+
+        if (await categoriesList.OnlyOneAsync(
+                $"Found a duplicate category `{name}` for the game `{game.title}`(`{game.game_id}`).")) {
+            output = categoriesList.First();
+        }
+            
+        // if we created the context, dispose of it.
+        if (CreatedContext) {
+            await context.DisposeAsync();
+        }
+
+        return output;
+    }
+
+    /// <summary>
+    /// gets a user from the database
+    /// </summary>
+    /// <param name="guild">The guild the target user is a member of</param>
+    /// <param name="user">The user to find.</param>
+    /// <param name="context">Optional, Lets you avoid creating a new instance of context.</param>
+    /// <returns>The user object or null if none wer found.</returns>
+    private static async Task<Users?> GetDbUserAsync(this IGuild guild, IUser user, ServerDataContext? context = null) {
+        // handle the optional context
+        bool CreatedContext = false;
+        
+        if (context == null) {
+            context = new ServerDataContext();
+            CreatedContext = true;
+        }
+
+        Users? output = null;
+        List<Users> usersList = context.Users
+                .Where(u => u.discordUser_id == user.Id && u.server_id == guild.Id)
+                .ToList();
+
+        if (await usersList.OnlyOneAsync($"Found a duplicate user on the server {guild.Name} ")) {
+            output = usersList.First();
+        }
+        
+        
+        // if we created the context, dispose of it.
+        if (CreatedContext) {
+            await context.DisposeAsync();
+        }
+
+        return output;
+    }
+    
+    /// <summary>
+    /// Returns a list of games that are registerd to a guild
+    /// </summary>
+    /// <param name="guild">The target guild</param>
+    /// <returns>a list of the game titles</returns>
+    public static async Task<List<string>> GetGames(this IGuild guild) {
+        List<string> games;
         
         try {
-            using (SQLiteConnection connection = new SQLiteConnection(ServerDataConnection)) {
-                connection.Open();
-
-                FilePath = connection.FileName;
-
-                string sql = @"SELECT title 
-                           FROM games
-                           WHERE server_id = @serverId";
-
-                SQLiteCommand command = connection.CreateCommand();
-                command.CommandText = sql;
-
-                command.Parameters.AddWithValue("@serverId", guildID);
-
-                using (SQLiteDataReader reader = command.ExecuteReader()) {
-                    while (reader.Read()) {
-                        games.Add(reader.GetString(0));
-                    }
-                }
-            }
+            await using var context = new ServerDataContext();
+            games = await context.Games
+                .Where(g => g.server_id == guild.Id)
+                .Select(g => g.title)
+                .ToListAsync();
         }
-        catch (SQLiteException ex) {
-            await Program.LogAsync(new LogMessage(LogSeverity.Error, nameof(GetGames), FilePath));
+        catch (Exception ex) {    
+            await Program.LogAsync(LogSeverity.Error,  ex.Message, ex);
             throw;
         }
+        
         return games;
     }
     
-    public static bool RemoveTitle(SocketGuildUser member, string title) {
+    /// <summary>
+    /// Removes a title from a user.
+    /// </summary>
+    /// <param name="member">The member to target</param>
+    /// <param name="title">The title to remove</param>
+    /// <returns>Bool representing whether the operation was successful.</returns>
+    public static async Task<bool> RemoveTitle(this IGuildUser member, string title) {
             try {
-                using (var connection = new SQLiteConnection(ServerDataConnection)) {
-                    connection.Open();
 
-                    // Query to remove a title associated with a user
-                    string sql = @"
-                        DELETE FROM titles
-                        WHERE title = @Title AND user_id = (
-                            SELECT user_id FROM users WHERE discordUser_id = @DiscordUserId AND server_id = @ServerId
-                        );";
+                await using ServerDataContext context = new ServerDataContext();
 
-                    SQLiteCommand command = connection.CreateCommand();
-                    command.CommandText = sql;
-                    
-                    command.Parameters.AddWithValue("@Title", title);
-                    command.Parameters.AddWithValue("@DiscordUserId", member.Id);
-                    command.Parameters.AddWithValue("@ServerId", member.Guild.Id);
-
-                    command.ExecuteNonQuery();
+                // get the database UserId
+                int? userId = await member.getUserIdAsync( context);
                 
-                    // If rowsAffected is greater than 0, the title was removed
-                    return true; 
-                    
+                // if the id is null, the user doesn't exist
+                if (userId == null) {
+                    return false;
                 }
+
+                List<Titles> TitleToDelete = context.Titles.Where(t => t.title == title && t.user_id == userId).ToList();
+
+
+                if (!await TitleToDelete.OnlyOneAsync($"Duplicate Titles detected for title `{title}`!")) {
+                    return false;
+                }
+                
+                Titles titleToDelete = TitleToDelete.First();
+                context.Titles.Remove(titleToDelete);
+                await context.SaveChangesAsync();
+
+                return true;
+                
             }
             catch (Exception ex)
             {
-                // Log the exception (you can implement your logging here)
-                Console.WriteLine($"Error removing title: {ex.Message}");
-                return false; // An error occurred
+                await Program.LogAsync(LogSeverity.Error, ex.Message, ex);
+                throw;
             }
     }
-        
-    public static string[] GetTitlesForUser(SocketGuildUser member) {
-        var titles = new List<string>();
-        
-        // Connect to the database
-        using (var connection = new SQLiteConnection(ServerDataConnection)) {
-            connection.Open();
-            
-            string sql = @"
-            SELECT titles.title
-            FROM titles 
-            JOIN users  ON users.user_id = titles.user_id
-            WHERE users.discordUser_id = @UserId";
-            
-            SQLiteCommand command = connection.CreateCommand(sql);
-            
-            command.Parameters.AddWithValue("@UserId", member.Id);
-            
-            using (var reader = command.ExecuteReader()) {
-                while (reader.Read()) {
-                    titles.Add(reader.GetString(0));
-                }
-            }
-            
+    
+    /// <summary>
+    /// mentions the user while applying any titles the user has.
+    /// </summary>
+    /// <param name="member">The member you want to mention</param>
+    /// <returns>A mention of the user.</returns>
+    public static async Task<string> ApplyTitle(this IGuildUser member) {
+
+        string[] titles = await member.GetTitles();
+
+        if (titles.Length == 0) {
+            return member.Mention;
         }
+
+        string randomTitle = titles[new Random().Next(titles.Length)];
+        return randomTitle.Replace("<username>", member.Mention);
+    }
+    
+    /// <summary>
+    ///  returns a list of titles the member has
+    /// </summary>
+    /// <param name="member">The member whose titles you want.</param>
+    /// <returns>an array of the user's titles</returns>
+    public static async Task<string[]> GetTitles(this IGuildUser member) {
+        
+        using ServerDataContext context = new ServerDataContext();
+        
+        // get the database userId of the user
+        int? databaseUserId = await member.getUserIdAsync(context);
+        
+        // get titles attached to them
+        List<string> titles = context.Titles
+            .Where(t => t.user_id == databaseUserId)
+            .Select(t => t.title)
+            .ToList();
 
         return titles.ToArray();
     }
     
-    public static SocketGuildUser? GetMemberWithTitle(string title, SocketGuild guild) {
-        using (var connection = new SQLiteConnection(ServerDataConnection)) {
-            connection.Open();
+    /// <summary>
+    /// Gets the member of a guild that has a title.
+    /// </summary>
+    /// <param name="guild">The guild with the user and title</param>
+    /// <param name="title">The title your looking for.</param>
+    /// <returns>The member with the title or null if the title cannot be found.</returns>
+    public static async Task<IGuildUser?> GetMemberWithTitle(this IGuild guild, string title) {
 
-            string sql = @"
-                SELECT users.discordUser_id
-                FROM titles
-                JOIN users  ON titles.user_id = users.user_id
-                WHERE titles.title = @Title AND users.server_id = @ServerId
-            ";
+        ServerDataContext context = new ServerDataContext();
 
-            SQLiteCommand command = connection.CreateCommand();
+        List<Users> users = context.Titles.Where(t => t.title == title).Select(t => t.user).ToList();
 
-            command.CommandText = sql;
+        if (await users.OnlyOneAsync(
+                $"{users.Count} users have the title `{title}` on server {guild.Name}(`{guild.Id}`)!")) 
+        {
+            ulong userId = users.First().discordUser_id;
 
-            // add our paramiters
-            command.Parameters.AddWithValue("@Title", title);
-            command.Parameters.AddWithValue("@ServerId", guild.Id);
-
-            var userId = command.ExecuteScalar() as long?; // Assuming user_id is of type long
-
-            // If no user ID is found, return null
-            if (userId == null) {
-                return null;
-            }
-
-            // Find and return the member with the given user ID
-            return guild.GetUser((ulong)userId);
-            
+            return await guild.GetUserAsync(userId);
         }
+
+        return null;
     }
     
-    public static async Task AddTitle(SocketGuildUser member, string title) {
-        await using (var connection = new SQLiteConnection(ServerDataConnection)) {
-            connection.Open();
+    
+    /// <summary>
+    /// Adds a title to a user
+    /// </summary>
+    /// <param name="member">The guild member to add the title to.</param>
+    /// <param name="title">The title to add</param>
+    /// <returns>wether the operaiton was a success.</returns>
+    /// <exception cref="UnreachableException"></exception>
+    public static async Task<bool> AddTitle(this IGuildUser member, string title) {
+        await using ServerDataContext context = new ServerDataContext();
 
-            // First, check if the member already exists in the users table
-            ulong discordUserId = member.Id;
-            ulong serverId = member.Guild.Id;
-            int userId;
+        await member.AddUser();
+        
+        int databaseUserId = await member.getUserIdAsync(context) ?? throw new UnreachableException("We just added the user to the database, how are they not there?");
+        
 
-            // Check if the user already has an entry in the users table
-            string checkUserSql = @"
-                SELECT COUNT(*)
-                FROM users
-                WHERE discordUser_id = @DiscordUserId AND server_id = @ServerId";
+        if (await member.Guild.GetMemberWithTitle(title) == null) {
+            Titles newTitle = new Titles {
+                title = title,
+                user_id = databaseUserId
+            };
 
-            SQLiteCommand command = connection.CreateCommand();
-
-            command.CommandText = checkUserSql;
-            
-            command.Parameters.AddWithValue("@DiscordUserId", discordUserId);
-            command.Parameters.AddWithValue("@ServerId", serverId);
-
-            object? result = command.ExecuteScalar();
-
-            // If the user does not exist, insert them into the users table
-            if (result == null) {
-                string insertUserSql = @"
-                INSERT INTO users (discordUser_id, server_id)
-                VALUES (@DiscordUserId, @ServerId);
-                SELECT last_insert_rowid();";
-
-                SQLiteCommand insertCommand = connection.CreateCommand(insertUserSql);
-                
-                insertCommand.Parameters.AddWithValue("@DiscordUserId", discordUserId);
-                insertCommand.Parameters.AddWithValue("@ServerId", serverId);
-                userId = (int)insertCommand.ExecuteScalar();
-                
-            }
-            else
-            {
-                userId = (int)result;
-            }
-            
-
-            // Now, add the title with the associated user_id
-            string insertTitleSql = @"
-            INSERT INTO titles (title, user_id)
-            VALUES (@Title, @UserId)";
-
-            using (var insertTitleCommand = new SQLiteCommand(insertTitleSql, connection))
-            {
-                insertTitleCommand.Parameters.AddWithValue("@Title", title);
-                insertTitleCommand.Parameters.AddWithValue("@UserId", userId);
-                int numRowsChanged = insertTitleCommand.ExecuteNonQuery();
-
-                if (numRowsChanged != 1) {
-                    await Program.LogAsync(new LogMessage(LogSeverity.Critical, nameof(AddTitle),
-                        $"An insert of a single title effected more than one row." +
-                        $"Attempting to add the title`{title}` to `{member.Username}`(`{member.Id}`) on the Table " +
-                        $"`{member.Guild.Name}`(`{member.Guild.Id}`)"));
-                }
-            }
+            context.Titles.Add(newTitle);
+            await context.SaveChangesAsync();
+            return true;
+        }
+        else {
+            return false;
         }
     }
 
+    public static void AddServer(this SocketGuild guild) {
+
+        ServerDataContext context = new ServerDataContext();
+
+        int numServers = context.Servers.Count(s => s.server_id == guild.Id);
+
+        if (numServers == 0) {
+            Servers newServer = new Servers {
+                server_id = guild.Id
+            };
+
+            context.Add(newServer);
+
+            context.SaveChanges();
+        }
+    }
     
-    
-    public static Dictionary<string, string> GetServerSettings(SocketGuild guild) {
+    public static async Task<Dictionary<string, string>> GetSettingsAsync(this SocketGuild guild) {
+        await using ServerDataContext context = new ServerDataContext();
+        
         var settings = new Dictionary<string, string>();
 
-        using (var connection = new SQLiteConnection(ServerDataConnection)) {
-            connection.Open();
+        
+        List<Servers> serverResults = context.Servers
+            .Where(s => s.server_id == guild.Id).ToList();
 
-            // Query to get Table settings
-            string sql = "SELECT * FROM servers WHERE server_id = @ServerId";
+        if (await serverResults.OnlyOneAsync($"Found more than one server in the database for server_id == `{guild.Id}`")) {
 
-            SQLiteCommand command = connection.CreateCommand();
-            command.CommandText = sql;
+            Servers server = serverResults.First();
             
-            command.Parameters.AddWithValue("@ServerId", guild.Id);
+            
+            // Use reflection to get property names and values dynamically
+            PropertyInfo[] properties = typeof(Servers).GetProperties();
+            
+            
+            foreach (PropertyInfo prop in properties) {
+                string columnName = prop.Name;
 
-            using (var reader = command.ExecuteReader()) {
-                if (reader.Read()) {
-                    // Populate the dictionary with column names and their corresponding values
-                    for (int i = 0; i < reader.FieldCount; i++) {
-                        string columnName = reader.GetName(i);
-                        string value = $"{reader[i]}";
-                        settings[columnName] = value;
-                    }
+                if (columnName != nameof(Servers.server_id)) {
+                    string value = prop.GetValue(server)?.ToString() ?? string.Empty;
+                    settings[columnName] = value;
                 }
             }
         }
+
         return settings;
     }
     
-    public static void AddServer(SocketGuild guild) {
-        using(var connection = new SQLiteConnection(ServerDataConnection)) {
-            connection.Open();
-            
-            // Query to insert a new Table
-            string sql = @"
-                INSERT INTO servers (server_id, safeFlow)
-                VALUES (@ServerId, @SafeFlow)";
+    public static  Type? GetSettingDataType(string key) {
+        PropertyInfo[] properties = typeof(Servers).GetProperties();
 
-            SQLiteCommand command = connection.CreateCommand();
-            command.CommandText = sql;
-            
-            command.Parameters.AddWithValue("@ServerId", guild.Id);
-            command.Parameters.AddWithValue("@SafeFlow", 1); // Default value for safeFlow
+        foreach (PropertyInfo prop in properties) {
+            string columnName = prop.Name;
 
-            command.ExecuteNonQuery();
-            
-        }
-    }
-    
-    public static (bool exists, string? dataType) GetSettingDataType(string key) {
-        using (var connection = new SQLiteConnection(ServerDataConnection)) {
-            connection.Open();
-
-            string sql = "SELECT name, type " +
-                         "FROM pragma_table_info('servers') " +
-                         "WHERE name = @Key;";
-
-            SQLiteCommand command = connection.CreateCommand();
-            command.CommandText = sql;
-            
-            command.Parameters.AddWithValue("@Key", key);
-
-            using (var reader = command.ExecuteReader()) {
-                if (reader.HasRows) {
-                    reader.Read();
-                    return (true, reader["type"].ToString());
-                }
+            if (columnName != nameof(Servers.server_id) && columnName == key) {
+                return prop.PropertyType;
             }
-            
         }
-        return (false, null);
+        
+        return null;
     }
 
-    public static bool TryParseType(string dataType, string value, out object parsedValue) {
+
+    public static bool TryParseType(Type dataType, string value, out object parsedValue) {
         parsedValue = null!;
 
-        switch (dataType.ToLower()) {
-            case "integer":
-                if (int.TryParse(value, out int intValue)) {
-                    parsedValue = intValue;
-                    return true;
-                }
-                break;
-            case "real":
-                if (double.TryParse(value, out double doubleValue)) {
-                    parsedValue = doubleValue;
-                    return true;
-                }
-                break;
-            case "text":
-                parsedValue = value;
+        if (dataType == typeof(int)) {
+            if (int.TryParse(value, out int intValue)) {
+                parsedValue = intValue;
                 return true;
-            case "bit":
-                if (int.TryParse(value, out int bitValue) && (bitValue == 0 || bitValue == 1)) {
-                    parsedValue = bitValue;
-                    return true;
-                }
-                break;
+            }
         }
+        else if (dataType == typeof(double)) {
+            if (double.TryParse(value, out double doubleValue)) {
+                parsedValue = doubleValue;
+                return true;
+            }
+        }
+        else if (dataType == typeof(string)) {
+            parsedValue = value;
+            return true;
+        }
+        else if (dataType == typeof(bool)) {
+            if (int.TryParse(value, out int bitValue) && (bitValue == 0 || bitValue == 1)) {
+                parsedValue = bitValue != 0; // Convert to bool
+                return true;
+            }
+        }
+
         return false;
     }
 
-    public static bool UpdateSetting(string key, object value, SocketGuild serverId) {
-        using (var connection = new SQLiteConnection(ServerDataConnection)) {
-            connection.Open();
+    public static async Task<bool?> UpdateSettingAsync(this IGuild guild, string key, object value) {
+        
+        await using ServerDataContext context = new ServerDataContext();
+        
+        List<Servers> serverResults = context.Servers
+            .Where(s => s.server_id == guild.Id).ToList();
 
-            string sql = $@"UPDATE servers 
-                            SET @Key = @Value 
-                            WHERE server_id = @ServerId;";
-
-            SQLiteCommand command = connection.CreateCommand();
-            command.CommandText = sql;
-            
-            command.Parameters.AddWithValue("@Key", key);
-            command.Parameters.AddWithValue("@Value", value);
-            command.Parameters.AddWithValue("@ServerId", serverId.Id);
-
-            int rowsAffected = command.ExecuteNonQuery();
-            return rowsAffected > 0;
-            
-        }
-    }
-    
-    public static bool AddGame(SocketGuild guild, string title) {
-        using (var connection = new SQLiteConnection(ServerDataConnection)) {
-            connection.Open();
-
-            // Check if the game already exists for the Table
-            string checkSql = @"
-                SELECT COUNT(*)
-                FROM games
-                WHERE title = @Title 
-                    AND server_id = @ServerId";
-
-            SQLiteCommand checkCommand = connection.CreateCommand();
-            checkCommand.CommandText = checkSql;
-
-            
-            checkCommand.Parameters.AddWithValue("@Title", title);
-            checkCommand.Parameters.AddWithValue("@ServerId", guild.Id);
-
-            var count = Convert.ToInt32(checkCommand.ExecuteScalar());
-            if (count > 0) {
-                return false; // Game already exists
-            }
+        if (!await serverResults.OnlyOneAsync(
+                $"Found more than one server in the database for server_id == `{guild.Id}`")) return null;
+        
+        Servers server = serverResults.First();
             
             
+        // Use reflection to get property names and values dynamically
+        PropertyInfo[] properties = typeof(Servers).GetProperties();
             
-
-            // Insert new game
-            string insertSql = @"
-                INSERT INTO games (title, server_id)
-                VALUES 
-                (@Title, @ServerId)";
-
-            SQLiteCommand insertCommand = connection.CreateCommand();
-            insertCommand.CommandText = insertSql;
-
             
-            insertCommand.Parameters.AddWithValue("@Title", title);
-            insertCommand.Parameters.AddWithValue("@ServerId", guild.Id);
+        foreach (PropertyInfo prop in properties) {
+            string columnName = prop.Name;
 
-            int result = insertCommand.ExecuteNonQuery();
-            return result > 0; // Returns true if the insert was successful
-            
-        }
-    }
-
-    public static bool RemoveGame(SocketGuild guild, string title) {
-        using (var connection = new SQLiteConnection(ServerDataConnection)) {
-            connection.Open();
-
-            // Begin transaction
-            using (var transaction = connection.BeginTransaction()) {
+            if (columnName != nameof(Servers.server_id) && columnName == key) {
                 try {
-                    // Delete categories associated with the game
-                    string deleteCategoriesSql = @"
-                        DELETE FROM categories
-                        WHERE game_id = (
-                            SELECT game_id FROM games
-                            WHERE title = @Title AND server_id = @ServerId
-                        )";
+                    prop.SetValue(server, value);
 
-                    SQLiteCommand deleteCategoriesCommand = connection.CreateCommand();
-                    deleteCategoriesCommand.CommandText = deleteCategoriesSql;
-                    
-                    deleteCategoriesCommand.Parameters.AddWithValue("@Title", title);
-                    deleteCategoriesCommand.Parameters.AddWithValue("@ServerId", guild.Id);
-                    deleteCategoriesCommand.ExecuteNonQuery();
-                    
-                    // Delete game
-                    string deleteGameSql = @"
-                        DELETE FROM games
-                        WHERE title = @Title AND server_id = @ServerId";
-
-                    SQLiteCommand deleteGameCommand = connection.CreateCommand();
-
-                    deleteGameCommand.CommandText = deleteGameSql;
-
-                    
-                    deleteGameCommand.Parameters.AddWithValue("@Title", title);
-                    deleteGameCommand.Parameters.AddWithValue("@ServerId", guild.Id);
-
-                    int result = deleteGameCommand.ExecuteNonQuery();
-
-                    // Commit transaction if delete was successful
-                    if (result > 0) {
-                        transaction.Commit();
-                        return true; // Returns true if the delete was successful
-                    } else {
-                        transaction.Rollback();
-                        return false;
-                    }
-                    
-                } catch (Exception){
-                    transaction.Rollback();
-                    throw; // Rethrow exception if something goes wrong
+                    await context.SaveChangesAsync();
+                    return true;
+                }
+                catch (Exception e) {
+                    await Program.LogAsync(LogSeverity.Warning,
+                        $"Failed to change setting `{key}` for server {guild.Name}(`{guild.Id}`) to {value}");
+                    return null;
                 }
             }
         }
+            
+        // if we make it though the for loop without returning, then the system couldn't find the setting
+        return false;
+
     }
     
-    public static bool AddCategory(ulong guildId, string gameTitle, string categoryName, string unit, bool higherBetter) {
-        using (var connection = new SQLiteConnection(ServerDataConnection)) {
-            connection.Open();
+    
+    /// <summary>
+    /// Adds a game to a server
+    /// </summary>
+    /// <param name="guild">The server to be modified</param>
+    /// <param name="title">The title of the game to add</param>
+    /// <param name="description">unused. a description to the game.</param>
+    /// <returns>False if the game already exists, True if the game has been added, and null for an error.</returns>
+    public static async Task<bool> AddGame(this IGuild guild, string title, string description = "") {
+        await using ServerDataContext context = new ServerDataContext();
+        
+        // first we verify the game doesn't already exist.
+        int numGames = context.Games.Count(g => g.title == title && g.server_id == guild.Id);
+        
+        // the game already exists
+        if (numGames == 1) {
+            return false;
+        }
+        
+        // there is a duplicate freak out there should never be a duplicate.
+        else if (numGames > 1) {
+            await Program.LogAsync(LogSeverity.Critical,
+                $"Found a duplicate game `{title}` for server {guild.Name}(`{guild.Id}`)");
+            return false;
+        }
 
-            // Begin transaction
-            using (var transaction = connection.BeginTransaction()) {
-                try {
-                    // Get the game ID
-                    string getGameIdSql = @"
-                        SELECT game_id FROM games
-                        WHERE title = @GameTitle 
-                          AND server_id = @ServerId;";
-                    
-                    SQLiteCommand getGameIdCommand = connection.CreateCommand(getGameIdSql);
-                    
-                    
-                    getGameIdCommand.Parameters.AddWithValue("@GameTitle", gameTitle);
-                    getGameIdCommand.Parameters.AddWithValue("@ServerId", guildId);
-                    
-                    object? result = getGameIdCommand.ExecuteScalar();
-                    if (result == null) {
-                        throw new InvalidOperationException("Game not found.");
-                    }
-                    int gameId = Convert.ToInt32(result);
-                    
+        // create a new game object
+        Games newGame = new Games {
+            server_id = guild.Id,
+            title = title
+        };
+        
+        
+        // add the new game object to the database and save the changes.
+        await context.Games.AddAsync(newGame);
+        await context.SaveChangesAsync();
+        return true;
+    }
+    
+    /// <summary>
+    /// Removes a game from a server
+    /// </summary>
+    /// <param name="guild">The guild with the game</param>
+    /// <param name="title">The title of the game</param>
+    /// <returns>False if it cant find the game, True on a sucess.</returns>
+    public static async Task<bool> RemoveGameAsync(this IGuild guild, string title) {
+        await using ServerDataContext context = new ServerDataContext();
+        
+        Games? game = await guild.GetGame(title, context);
 
-                    // Add category
-                    string addCategorySql = @"
-                        INSERT INTO categories (game_id, name, unit, higherBetter)
-                        VALUES 
-                        (@GameId, @Name, @Unit, @HigherBetter);";
+        if (game != null) {
+            context.Games.Remove(game);
+            await context.SaveChangesAsync();
+            return true;
+        }
+        return false;
+        
+    }
+    
+    /// <summary>
+    /// Adds a Category to a game on a server.
+    /// </summary>
+    /// <param name="guild">The guild with the game</param>
+    /// <param name="gameTitle">the title of the game you are adding the category to</param>
+    /// <param name="categoryName">The name of the category</param>
+    /// <param name="unit">The unit of scores within the category.</param>
+    /// <param name="higherBetter">Weather higher scores are better in this category</param>
+    /// <returns>True if the category has been added and False if it failed.</returns>
+    /// <exception cref="InvalidOperationException">Thows this exception if it cant find the game.</exception>
+    public static async Task<bool> AddCategoryAsync(this IGuild guild, string gameTitle, string categoryName, string unit, bool higherBetter) {
+        
+        await using ServerDataContext context = new ServerDataContext();
+        
+        // get the game
+        Games? game = await guild.GetGame(gameTitle, context);
 
-                    using (var addCategoryCommand = new SQLiteCommand(addCategorySql, connection)) {
-                        addCategoryCommand.Parameters.AddWithValue("@GameId", gameId);
-                        addCategoryCommand.Parameters.AddWithValue("@Name", categoryName);
-                        addCategoryCommand.Parameters.AddWithValue("@Unit", unit);
-                        addCategoryCommand.Parameters.AddWithValue("@HigherBetter", higherBetter ? 1 : 0);
+        if (game == null) {
+            throw new InvalidOperationException("You should never see this message.");
+        }
+        
+        int numbCategories = context.Categories.Count(c => c.game == game && c.name == categoryName);
 
-                        int AddResult = addCategoryCommand.ExecuteNonQuery();
-                        
-                        // Commit transaction if insert was successful
-                        if (AddResult > 0) {
-                            transaction.Commit();
-                            return true; // Returns true if the insert was successful
-                        } else {
-                            transaction.Rollback();
-                            return false;
-                        }
-                    }
-                } catch {
-                    transaction.Rollback();
-                    throw; // Rethrow exception if something goes wrong
-                }
-            }
+        if (numbCategories == 1) {
+            return false;
+        }
+        else if (numbCategories > 1) {
+            await Program.LogAsync(LogSeverity.Critical,
+                $"Found a duplicate category `{categoryName} in game {game.title}(`{game.game_id}`)");
+            return false;
+        }
+        else {
+            Categories newCategory = new Categories {
+                game = game,
+                game_id = game.game_id,
+                higherBetter = higherBetter,
+                name = categoryName,
+                unit = unit
+            };
+
+            context.Categories.Add(newCategory);
+            await context.SaveChangesAsync();
+            return true;
         }
     }
     
-    
-    public static async Task<List<string>?> GetCategoriesWithScores(IUser member, IGuild guild, string gameTitle) {
+    /// <summary>
+    /// displays a list of categories of a game with the score of a user.
+    /// </summary>
+    /// <param name="user">The user whose score will be displayed</param>
+    /// <param name="guild">the guild with the game.</param>
+    /// <param name="gameTitle">The title of the game.</param>
+    /// <returns>A list of each category and score. Or null if the game doesn't exist.</returns>
+    public static async Task<List<string>?> GetCategoriesWithScores(IUser user, IGuild guild, string gameTitle) {
         var result = new List<string>();
 
-        await AddMember(guild, member);
+        await using ServerDataContext context = new ServerDataContext();
+        
+        await guild.AddUser(user, context);
 
-        using (var connection = new SQLiteConnection(ServerDataConnection)) {
-            connection.Open();
+        Games? game = await guild.GetGame(gameTitle, context);
 
-            // Get the game ID for the specified title
-            string gameIdSql = @"
-                SELECT game_id 
-                FROM games 
-                WHERE title = @Title AND server_id = @ServerId;";
-
-            SQLiteCommand gameIdCommand = connection.CreateCommand();
-            gameIdCommand.CommandText = gameIdSql;
-            
-            gameIdCommand.Parameters.AddWithValue("@Title", gameTitle);
-            gameIdCommand.Parameters.AddWithValue("@ServerId", guild.Id);
-
-            Object? game_id = gameIdCommand.ExecuteScalar();
-            if (game_id == null) {
-                return null;
-            } // Return empty if no game found
-            
-
-            // Get categories for the specified game
-            string categoriesSql = @"
-                SELECT categories.category_id, categories.name 
-                FROM categories
-                WHERE categories.game_id = @GameId;";
-
-            SQLiteCommand categoriesCommand = connection.CreateCommand();
-
-            categoriesCommand.CommandText = categoriesSql;
-            
-            categoriesCommand.Parameters.AddWithValue("@GameId", game_id);
-            
-            using (SQLiteDataReader reader = categoriesCommand.ExecuteReader()) {
-                while (reader.Read()) {
-                    int categoryId = reader.GetInt32(0);
-                    string categoryName = reader.GetString(1);
-
-                    // Check if the user has a score for this category
-                    string scoreSql = @"
-                        SELECT scores.value
-                        FROM scores 
-                        JOIN users ON scores.user_id = users.user_id
-                        WHERE scores.category_id = @CategoryId 
-                            AND users.discordUser_id = @DiscordUserId 
-                            AND users.server_id = @ServerId";
-
-                    SQLiteCommand scoreCommand = connection.CreateCommand();
-                    scoreCommand.CommandText = scoreSql;
-
-
-                    scoreCommand.Parameters.AddWithValue("@CategoryId", categoryId);
-                    scoreCommand.Parameters.AddWithValue("@DiscordUserId", member.Id);
-                    scoreCommand.Parameters.AddWithValue("@ServerId", guild.Id);
-
-                    object? scoreResult = scoreCommand.ExecuteScalar();
-
-                    string output;
-
-                    // Format the result
-                    if (scoreResult != null) {
-                        output = ($"**{categoryName}** {member.Username}: {scoreResult}");
-                    }
-                    else {
-                        output = $"**{categoryName}**";
-                    }
-
-                    result.Add(output);
-                }
-            }
+        if (game == null) {
+            return null;
         }
+        
+        List<Categories> categoriesList = await context.Categories.Where(c => c.game == game).ToListAsync();
 
+        Users? dbUser = await guild.GetDbUserAsync(user, context);
+
+        if (dbUser == null) {
+            return null;
+        }
+        IQueryable<Scores> scoresListQueryable = context.Scores.Where(s => s.user == dbUser);
+
+        foreach (Categories category in categoriesList) {
+            List<Scores> scoresList = await scoresListQueryable.Where(s => s.category == category).ToListAsync();
+                    
+                    
+            // freak out if there is a duplicate scores
+            if (scoresList.Count > 1) {
+                await Program.LogAsync(LogSeverity.Critical,
+                    $"Found {scoresList.Count} duplicate score(s) for {user.Username}(`{dbUser.user_id} in category " +
+                    $"{category.name}(`{category.category_id}`)");
+                return null;
+            }
+                    
+            // if there is a score output it.
+            else if (scoresList.Count == 1) {
+                Scores score = scoresList.First();
+                        
+                result.Add($"**{category.name}** {user.Username}: {score.value} {category.unit}");
+            }
+            
+            // if the user doesent have a score here, just output the category name.
+            else {
+                result.Add($"**{category.name}**");
+            }
+                    
+        }
+        
         return result;
     }
     
-    public static async Task<List<string>?> GetCategoriesWithScores(IGuildUser member, string gameTitle) {
+    /// <summary>
+    /// Overload of GetCategoriesWithScores(IUser, IGuild, string)
+    ///
+    /// displays a list of categories of a game with the score of a user.
+    /// </summary>
+    /// <param name="member">Member of a guild whose score will be displayed.</param>
+    /// <param name="gameTitle">The title of the game.</param>
+    /// <returns>A list of each category and score. Or null if the game doesn't exist.</returns>
+    public static async Task<List<string>?> GetCategoriesWithScores(this IGuildUser member, string gameTitle) {
         return await GetCategoriesWithScores(member, member.Guild, gameTitle);
     }
     
-    public static List<string>? GetCategories(IGuild guild, string gameTitle) {
+    
+    /// <summary>
+    /// Returns the categories associated with a game on a server
+    /// </summary>
+    /// <param name="guild">The guild with the game.</param>
+    /// <param name="gameTitle">The title of the game.</param>
+    /// <returns>A list of category names.</returns>
+    public static async Task<List<string>?> GetDbCategoriesAsync(this IGuild guild, string gameTitle) {
         var result = new List<string>();
 
-        using (var connection = new SQLiteConnection(ServerDataConnection)) {
-            connection.Open();
+        await using ServerDataContext context = new ServerDataContext();
+        
 
-            // Get the game ID for the specified title
-            string gameIdSql = @"
-                SELECT game_id 
-                FROM games 
-                WHERE title = @Title AND server_id = @ServerId;";
+        Games? game = await guild.GetGame(gameTitle, context);
 
-            SQLiteCommand gameIdCommand = connection.CreateCommand();
-            gameIdCommand.CommandText = gameIdSql;
-            
-            gameIdCommand.Parameters.AddWithValue("@Title", gameTitle);
-            gameIdCommand.Parameters.AddWithValue("@ServerId", guild.Id);
-
-            Object? game_id = gameIdCommand.ExecuteScalar();
-            if (game_id == null) {
-                return null;
-            } // Return empty if no game found
-            
-
-            // Get categories for the specified game
-            string categoriesSql = @"
-                SELECT categories.category_id, categories.name 
-                FROM categories
-                WHERE categories.game_id = @GameId;";
-
-            SQLiteCommand categoriesCommand = connection.CreateCommand();
-
-            categoriesCommand.CommandText = categoriesSql;
-            
-            categoriesCommand.Parameters.AddWithValue("@GameId", game_id);
-            
-            using (SQLiteDataReader reader = categoriesCommand.ExecuteReader()) {
-                while (reader.Read()) {
-                    string categoryName = reader.GetString(1);
-                    
-                    result.Add(categoryName);
-                }
-            }
+        if (game == null) {
+            return null;
         }
+        
+        List<Categories> categoriesList = await context.Categories.Where(c => c.game == game).ToListAsync();
 
+        foreach (Categories category in categoriesList) {
+            result.Add($"**{category.name}**");
+        }
+        
         return result;
     }
     
     
-    public static bool RemoveCategory(SocketGuild guild, string gameTitle, string categoryName) {
-        using (var connection = new SQLiteConnection(ServerDataConnection)) {
-            connection.Open();
-
-            // Begin transaction
-            using (var transaction = connection.BeginTransaction()) {
-                try {
-                    // Get the category ID
-                    string getCategoryIdSql = @"
-                        SELECT c.category_id 
-                        FROM categories c
-                        JOIN games g ON c.game_id = g.game_id
-                        WHERE g.title = @GameTitle 
-                          AND g.server_id = @ServerId 
-                          AND c.name = @CategoryName;";
-
-                    int categoryId;
-                    SQLiteCommand getCategoryIdCommand = connection.CreateCommand(getCategoryIdSql);
-                    
-                    
-                    getCategoryIdCommand.Parameters.AddWithValue("@GameTitle", gameTitle);
-                    getCategoryIdCommand.Parameters.AddWithValue("@ServerId", guild.Id);
-                    getCategoryIdCommand.Parameters.AddWithValue("@CategoryName", categoryName);
-
-                    var getResult = getCategoryIdCommand.ExecuteScalar();
-                    if (getResult == null) {
-                        throw new InvalidOperationException("Category not found.");
-                    }
-                    categoryId = Convert.ToInt32(getResult);
-                    
-
-                    // Remove category
-                    string removeCategorySql = @"
-                        DELETE FROM categories
-                        WHERE category_id = @CategoryId";
-
-                    SQLiteCommand removeCategoryCommand = connection.CreateCommand(removeCategorySql);
-                    
-                    
-                    removeCategoryCommand.Parameters.AddWithValue("@CategoryId", categoryId);
-
-                    int RemoveResult = removeCategoryCommand.ExecuteNonQuery();
-                    
-                    // Commit transaction if delete was successful
-                    if (RemoveResult > 0) {
-                        transaction.Commit();
-                        return true; // Returns true if the delete was successful
-                    } else {
-                        transaction.Rollback();
-                        return false;
-                    }
-                    
-                } catch {
-                    transaction.Rollback(); 
-                    throw; // Rethrow exception if something goes wrong
-                }
-            }
-        }
-    }
-
-    public static async Task<bool> GetSafeFlow(IGuild guild) {
-        bool output = true;
+    /// <summary>
+    /// Removes a category from a game on a server
+    /// </summary>
+    /// <param name="guild">The server where the game is</param>
+    /// <param name="gameTitle">The title of the game</param>
+    /// <param name="categoryName">The name of the category to be removed.</param>
+    /// <returns>True if successful, False if not.</returns>
+    public static async Task<bool> RemoveCategoryAsync(this IGuild guild, string gameTitle, string categoryName) {
+        await using ServerDataContext context = new ServerDataContext();
         
-        using (var connection = new SQLiteConnection(ServerDataConnection)) {
-            connection.Open();
 
-            string sql = @"SELECT safeFlow
-                           FROM servers
-                           WHERE server_id = @serverId";
+        List<Categories> categories = await context.Categories
+            .Where(c=> c.game.title == gameTitle && c.name == categoryName)
+            .ToListAsync();
 
-            SQLiteCommand command = connection.CreateCommand(sql);
-
-            command.Parameters.AddWithValue("@serverId", guild.Id);
-
-            using (SQLiteDataReader result = command.ExecuteReader()) {
-                int safeFlow = Convert.ToInt32(result);
-
-                if (safeFlow == 1) {
-                    output = true;
-                }
-                else if (safeFlow == 0) {
-                    output = false;
-                }
-                else {
-                    await Program.LogAsync(new LogMessage(LogSeverity.Critical, nameof(GetSafeFlow),
-                        $"so... um your SQLite trigger didnt work. The safeFlow value for the guild " +
-                        $"{guild.Name} ({guild.Id}) is {safeFlow}, not 0 or 1."));
-                }
-            }
+        if (await categories.OnlyOneAsync(
+                $"Found a duplicate category {categoryName} in game {gameTitle} on {guild.Name}(`{guild.Id}`)")) 
+        {
+            Categories category = categories.First();
+            
+            context.Categories.Remove(category);
+            await context.SaveChangesAsync();
+            return true;
         }
 
-        return output;
-    }
-
-    public static async Task AddMember(IGuildUser member) {
-        
-        await AddMember(member.Guild, member);
-    }
-
-    public static async Task AddMember(IGuild guild, IUser member) {
-        using (var connection = new SQLiteConnection(ServerDataConnection)) {
-            connection.Open();
-
-            string hasMemberSql = @"SELECT COUNT(*)
-                                    FROM users
-                                    WHERE server_id = @guildId
-                                        AND discordUser_id = @memberId;";
-            
-
-            SQLiteCommand hasMemberCommand = connection.CreateCommand(hasMemberSql);
-
-            hasMemberCommand.Parameters.AddWithValue("@guildId", guild.Id);
-            hasMemberCommand.Parameters.AddWithValue("@memberId", member.Id);
-
-            object? hasMemberResult = hasMemberCommand.ExecuteScalar();
-
-            int numUsers = Convert.ToInt32(hasMemberResult);
-
-            
-            if (numUsers == 0) {
-                string insertSql = @"INSERT INTO users (discordUser_id, server_id) 
-                                   VALUES 
-                                   (@memberId, @guildId);";
-
-                SQLiteCommand insertCommand = connection.CreateCommand(insertSql);
-
-                insertCommand.Parameters.AddWithValue("@memberId", member.Id);
-                insertCommand.Parameters.AddWithValue("@guildId", guild.Id);
-
-                object reader = insertCommand.ExecuteNonQuery();
-
-                int numEffected = Convert.ToInt32(reader);
-
-                if (numEffected != 1) {
-                    await Program.LogAsync(new LogMessage(LogSeverity.Critical, nameof(AddMember),
-                        $"Inserting a new user effected more than one row. Server: `{guild.Name}`(`{guild.Id}`) " +
-                        $"Member: `{member.Username}`(`{member.Id}`)"));
-                }
-            }
-            else if (numUsers != 1) {
-                await Program.LogAsync(new LogMessage(LogSeverity.Critical, nameof(AddMember),
-                    $"Duplicate user found. Server `{guild.Name}`(`{guild.Id}`) contains {numUsers} references to " +
-                    $"The user `{member.Username}`(`{member.Id}`)"));
-            }
-
-        }
+        return false;
     }
     
-    private static SQLiteCommand CreateCommand(this SQLiteConnection connection, string sql) {
-        SQLiteCommand output = connection.CreateCommand();
-        output.CommandText = sql;
+    /// <summary>
+    /// Gets whether the output of the flow command should be spoiled
+    /// </summary>
+    /// <param name="guild"></param>
+    /// <returns>the bool value</returns>
+    public static async Task<bool?> GetSafeFlow(this IGuild guild) {
+        await using ServerDataContext context = new ServerDataContext();
 
-        return output;
+        List<bool> SafeFlowOutput = context.Servers
+            .Where(s => s.server_id == guild.Id)
+            .Select(s => s.safeFlow).ToList();
+
+        if (await SafeFlowOutput.OnlyOneAsync($"Found more than one server under server_id == {guild.Id}")) {
+            return SafeFlowOutput.First();
+        }
+
+        return null;
     }
+    
+
+    
 }

@@ -7,14 +7,14 @@ namespace GhostOfJoe.Data;
 
 public class ServerDataContext : DbContext {
 
-    // there should be one of these for every table.
+    // there should be one of these for every table in the database.
     public DbSet<Categories> Categories { get; set; } = null!;
 
     public DbSet<Games> Games { get; set; } = null!;
 
     public DbSet<Scores> Scores { get; set; } = null!;
 
-    public DbSet<Tables> Servers { get; set; } = null!;
+    public DbSet<Servers> Servers { get; set; } = null!;
 
     public DbSet<Titles> Titles { get; set; } = null!;
 
@@ -29,4 +29,4 @@ public class ServerDataContext : DbContext {
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) {
         optionsBuilder.UseSqlite(ServerDataConnection);
     }
-}
+}   

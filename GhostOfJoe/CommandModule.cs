@@ -1,9 +1,9 @@
-﻿using System.Data.SQLite;
+﻿
 using System.Diagnostics;
 using Discord;
 using Discord.Interactions;
 using Discord.WebSocket;
-
+using GhostOfJoe.Models;
 
 namespace GhostOfJoe;
 
@@ -18,10 +18,10 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
             SocketGuildUser member = (SocketGuildUser)Context.User;
             if (member == null) throw new ArgumentNullException(nameof(member));
         
-            await RespondAsync(Program.ApplyTitle(member));
+            await RespondAsync(await member.ApplyTitle());
         }
         catch (Exception ex) {
-            await Program.LogAsync(new LogMessage(LogSeverity.Error, nameof(PingAsync), "", ex));
+            await Program.LogAsync(LogSeverity.Error, ex.Message, ex);
         }
        
     }
@@ -32,26 +32,28 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
     public async Task GrantTitleAsync([Summary(description: "The user receiving the title")]SocketGuildUser member, 
         [Summary(description: "The title to be granted")] string title) 
     {
-
-        SocketGuildUser? holder = DataHandler.GetMemberWithTitle(title, member.Guild);
+        IGuildUser? holder = await member.Guild.GetMemberWithTitle(title);
         
         if (holder != null && holder != member) {
             
-
-            await ReplyAsync($"Hark! {holder.Mention} already possesses the title '{title}' and no user " +
-                                     $"may possess the title of another");
+            await RespondAsync($"Hark! {holder.Mention} already possesses the title '{title}' and no user " +
+                               $"may possess the title of another!");
         }
         else if (holder != null && holder == member) {
-            await ReplyAsync(
+            await RespondAsync(
                 $"{member.Mention} already has the title '{title}'. Perhaps they need a different one?");
         }
         else {
-            await DataHandler.AddTitle(member, title);
-            await ReplyAsync($"{member.Mention} shall hereby be referred to as " +
-                             $"\"{title.Replace("<username>", member.Mention)}\"");
+            bool success = await member.AddTitle(title);
+
+            if (success) {
+                await RespondAsync($"{member.Mention} shall hereby be referred to as " +
+                                   $"\"{title.Replace("<username>", member.Mention)}\"");
+            }
+            else {
+                await RespondAsync($"I dont know what to tell you man. ");
+            }
         }
-        
-        await RespondAsync();
     }
     
     
@@ -62,7 +64,7 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
         [Summary("title","The title to be revoked")] string title) 
     {
 
-        if (DataHandler.RemoveTitle(member, title)) {
+        if (await member.RemoveTitle(title)) {
 
             await ReplyAsync($"{member.Mention} has been striped of the title '{title}'");
         }
@@ -79,7 +81,7 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
         await DeferAsync();
         try {
             // Retrieve the game list
-            List<string> gameList = await DataHandler.GetGames(Context.Guild.Id);
+            List<string> gameList = await Context.Guild.GetGames();
 
 
 
@@ -99,7 +101,7 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
             }
         }
         catch (Exception ex) {
-            await Program.LogAsync(new LogMessage(LogSeverity.Error, nameof(GetGameListAsync),"", ex));
+            await Program.LogAsync(LogSeverity.Error, "", ex);
             throw;
         }
     }
@@ -108,7 +110,7 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
     [RequireUserPermission(GuildPermission.ManageGuild)]
     public async Task AddGameAsync( string game) {
         await DeferAsync();
-        if (DataHandler.AddGame(Context.Guild, game)) {
+        if (await Context.Guild.AddGame(game)) {
             await FollowupAsync($"{game} has been added!");
         }
         else {
@@ -117,18 +119,18 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
     }
 
 
-    [SlashCommand("remove_game", "Removes a game from the high score database")]
+    [SlashCommand("remove_game", "Removes a game_title from the high score database")]
     [RequireUserPermission(GuildPermission.ManageGuild)]
-    public async Task RemoveGameAsync([Summary(description:"game to remove"), Autocomplete(typeof(CompleteGame))] string game) {
+    public async Task RemoveGameAsync([Summary(description:"title of the game to remove"), Autocomplete(typeof(CompleteGame))] string game_title) {
         await DeferAsync();
         
         bool success = false;
         try {
-            success = DataHandler.RemoveGame(Context.Guild, game);
+            success = await Context.Guild.RemoveGameAsync(game_title);
         }
         catch (Exception ex) {
-            await Program.LogAsync(new LogMessage(LogSeverity.Critical, $"{nameof(CommandModule)}.{nameof(RemoveCategoryAsync)}",
-                $"Game removal failed: {ex.Message}", ex));
+            await Program.LogAsync(LogSeverity.Critical,
+                $"Game removal failed: {ex.Message}", ex);
         }
         
         
@@ -168,7 +170,7 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
         await DeferAsync();
         bool success = false;
         try {
-            success = DataHandler.AddCategory(Context.Guild.Id, game, category, unit, higher_better);
+            success = await Context.Guild.AddCategoryAsync(game, category, unit, higher_better);
         }
         catch (InvalidOperationException) {
             await FollowupAsync($"{game}? never heard of it. But {category} certainly sounds interesting. " +
@@ -176,13 +178,12 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
         }
         catch (Exception ex) {
             await ReplyAsync("I dont know man... I dont feel so good. Somethings off. My brain did a goof. ");
-            await Program.LogAsync(new LogMessage(LogSeverity.Critical, $"{nameof(CommandModule)}.{nameof(AddCategoryAsync)}",
-                "Failed to add game category", ex));
+            await Program.LogAsync(LogSeverity.Critical, "Failed to add game category", ex);
         }
 
         if (success) {
 
-            if (category.ToLower().Contains("motes") && category.ToLower().Contains("bank")) {
+            if (category.ToLower().Contains("mote") && category.ToLower().Contains("bank")) {
                 await FollowupAsync(
                     $"Well, well, well. Another realm of competition. {category}, eh? " +
                     $"Drifter would be proud.");
@@ -192,8 +193,6 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
                     $"Well, well, well. Another realm of competition. {category}, eh? " +
                     $"Ive always though motes banked was enough, but to each their own.");
             }
-            
-            
         }
         else {
             await ReplyAsync("I dont know what went to tell you man, something went wrong");
@@ -201,19 +200,18 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
     }
     
     
-    [SlashCommand("removing_category", "Removes a category from a game")]
+    [SlashCommand("remove_category", "Removes a category from a game")]
     [RequireUserPermission(GuildPermission.ManageGuild)]
     public async Task RemoveCategoryAsync(
-        [Summary("game", "game with the category you want to remove"), Autocomplete(typeof(CompleteGame))] string game, 
+        [Summary("game_title", "the title of the game with the category you want to remove"), Autocomplete(typeof(CompleteGame))] string gameTitle, 
         [Summary("category", "The Category you want to remove from the game."), Autocomplete(typeof(CompleteCategory))] string category) 
     {
         bool success = false;
         try {
-            success = DataHandler.RemoveCategory(Context.Guild, game, category);
+            success = await Context.Guild.RemoveCategoryAsync(gameTitle, category);
         }
         catch (Exception ex) {
-            await Program.LogAsync(new LogMessage(LogSeverity.Critical, $"{nameof(CommandModule)}.{nameof(RemoveCategoryAsync)}",
-                $"Game removal failed: {ex.Message}", ex));
+            await Program.LogAsync(LogSeverity.Critical, $"Game removal failed: {ex.Message}", ex);
         }
         
         
@@ -237,8 +235,9 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
 
 
 
-        bool NsfwFlow = await DataHandler.GetSafeFlow(Context.Guild);
-
+        bool? NsfwFlow = await Context.Guild.GetSafeFlow();
+        
+        Debug.Assert(NsfwFlow != null, "NsfwFlow != null");
         Debug.Assert(channel != null, nameof(channel) + " != null");
         if (NsfwFlow != channel.IsNsfw){
             await ReplyAsync("This command can only be used in NSFW channels.");
@@ -251,11 +250,12 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
     
     
     [SlashCommand("get_global_settings", "get a list of my global settings. Look don't touch.")]
+    [RequireUserPermission((GuildPermission.Administrator))]
     public async Task GetGlobalSettingsAsync() {
         Debug.Assert(Program.config != null, "Program.config != null");
-        await ReplyAsync($"## Current Global Settings:\n{getSettings(Program.config.GlobalSettings)}");
+        await RespondAsync($"Only the bot owner may modify these settings, but server admins may see them." +
+                           $"\n## Current Global Settings:\n{getSettings(Program.config.GlobalSettings)}", ephemeral: true);
         
-        await RespondAsync();
     }
     
     
@@ -265,7 +265,8 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
         [Summary(description:"The name of the setting you want to change"), Autocomplete(typeof(CompleteGlobalSettingKey))]string key, 
         string value) 
     {
-        if (Program.AdminServers.Contains(Context.Guild.Id)) {
+        Debug.Assert(Program.config != null, "Program.config != null");
+        if (Program.config.AdminServers.Contains(Context.Guild.Id)) {
             Debug.Assert(Program.config != null, "Program.config != null");
             Dictionary<string, SettingBase?> settings = Program.config.GlobalSettings;
 
@@ -294,8 +295,9 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
     }
     
     private string SetGlobalSetting<T>(string key, T value) {
-        if (!Program.AdminServers.Contains(Context.Guild.Id)) {
-            return ("Sorry, this Table is not cool enough to have admin powers. Long live the Party Bus");
+        Debug.Assert(Program.config != null, "Program.config != null");
+        if (!Program.config.AdminServers.Contains(Context.Guild.Id)) {
+            return ("Sorry, this Server is not cool enough to have admin powers. Long live the Party Bus");
         }
 
         Debug.Assert(Program.config != null, "Program.config != null");
@@ -320,7 +322,7 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
     [SlashCommand("get_settings", "Get a list of the servers settings")]
     public async Task getSettingsAsync() {
 
-        Dictionary<string, string> targetSettings = DataHandler.GetServerSettings(Context.Guild);
+        Dictionary<string, string> targetSettings = await Context.Guild.GetSettingsAsync();
 
         string output = "";
 
@@ -334,38 +336,43 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
     }
     
     
-    [SlashCommand("set_settings", "Change your Table settings.")]
-    [Discord.Commands.RequireUserPermission(GuildPermission.ManageGuild)]
+    [SlashCommand("set_settings", "Change your Server settings.")]
+    [Discord.Commands.RequireOwner]
     public async Task SetSettingsAsync(string key, string value) {
         try {
-            (bool exists, string? dataType) = DataHandler.GetSettingDataType(key);
+            Type? dataType = DataHandler.GetSettingDataType(key);
     
-            if (!exists || dataType == null) {
-                await ReplyAsync($"The setting '{key}' does not exist.");
+            if (dataType == null) {
+                await RespondAsync($"The setting '{key}' does not exist.");
                 return;
             }
 
-            if (!DataHandler.TryParseType(dataType, value, out var parsedValue)) {
-                await ReplyAsync($"Invalid value '{value}' for the setting '{key}' of type '{dataType}'.");
+            if (!DataHandler.TryParseType(dataType, value, out object parsedValue)) {
+                await RespondAsync($"Invalid value '{value}' for the setting '{key}' of type '{dataType.FullName}'.");
                 return;
             }
-
-            if (DataHandler.UpdateSetting(key, parsedValue, Context.Guild)) {
-                await ReplyAsync($"Successfully updated the setting '{key}' to '{value}'.");
+            
+            if (await Context.Guild.UpdateSettingAsync(key, parsedValue) ?? false) {
+                await RespondAsync($"Successfully updated the setting '{key}' to '{value}'.");
+                return;
             } else {
-                await ReplyAsync($"Failed to update the setting '{key}'.");
+                await RespondAsync($"Failed to update the setting '{key}'.");
+                return;
             }
         } catch (Exception ex) {
-
-            await Program.LogAsync(new LogMessage(LogSeverity.Error, 
-                nameof(SetSettingsAsync), $"we got an error on Table " +
-                                          $"{Context.Guild.Name}({Context.Guild.Id})", ex));
+            await Program.LogAsync(LogSeverity.Error, $"We got an error on Server " +
+                                          $"{Context.Guild.Name}(`{Context.Guild.Id}`) for a command executed by " +
+                                          $"{Context.User.Username}(`{Context.User.Id}`) ", ex);
             
-            await ReplyAsync($"My brain did an big oopses. i have informed the creator.");
+            await RespondAsync($"My brain did an big oopses. I have informed the creator.");
         }
-        await RespondAsync();
     }
     
+    /// <summary>
+    /// converts settings into a string
+    /// </summary>
+    /// <param name="settings">the settings to convert</param>
+    /// <returns></returns>
     private string getSettings(Dictionary<string, SettingBase?> settings) {
         List<string> settingList = new List<string>();
         
@@ -381,7 +388,7 @@ public class CompleteGame : AutocompleteHandler {
     public override async Task<AutocompletionResult> GenerateSuggestionsAsync(IInteractionContext context, 
         IAutocompleteInteraction autocompleteInteraction, IParameterInfo parameter, IServiceProvider services) {
 
-        List<string> games = await DataHandler.GetGames(context.Guild.Id);
+        List<string> games = await context.Guild.GetGames();
         AutocompleteResult[] temp = new AutocompleteResult[games.Count];
 
         int index = 0;
@@ -422,7 +429,7 @@ public class CompleteGlobalSettingKey : AutocompleteHandler {
 }
 
 public class CompleteCategory : AutocompleteHandler {
-    public override Task<AutocompletionResult> GenerateSuggestionsAsync(IInteractionContext context,
+    public override async Task<AutocompletionResult> GenerateSuggestionsAsync(IInteractionContext context,
         IAutocompleteInteraction autocompleteInteraction, IParameterInfo parameter, IServiceProvider services) 
     {
         IEnumerable<AutocompleteResult> results = new AutocompleteResult[1];
@@ -433,7 +440,7 @@ public class CompleteCategory : AutocompleteHandler {
         
         if (gameTitle != null) {
             
-            List<string>? CategoryList = DataHandler.GetCategories(context.Guild, gameTitle);
+            List<string>? CategoryList = await context.Guild.GetDbCategoriesAsync(gameTitle);
             
             
             
@@ -449,6 +456,6 @@ public class CompleteCategory : AutocompleteHandler {
             }
         }
         
-        return Task.FromResult(AutocompletionResult.FromSuccess(results.Take(25)));
+        return AutocompletionResult.FromSuccess(results.Take(25));
     }
 }

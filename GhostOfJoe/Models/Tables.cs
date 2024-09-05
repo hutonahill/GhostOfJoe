@@ -4,7 +4,10 @@ using System.Configuration;
 
 namespace GhostOfJoe.Models;
 
-public class Tables {
+// just here so I can name the file Tables.cs
+public class Tables { }
+
+public class Servers {
     [Key]
     public ulong server_id { get; set; }
 
@@ -23,7 +26,8 @@ public class Users {
     public ulong server_id { get; set; }
     
     
-    public Tables Table { get; set; } = null!;
+    [ForeignKey(nameof(server_id))]
+    public Servers Server { get; set; } = null!;
 }
 
 public class Titles {
@@ -31,12 +35,14 @@ public class Titles {
     public int title_id { get; set; }
 
     [Column(TypeName = "Text")] 
+    [StringLength(75)]
     public string title { get; set; } = null!;
 
     [Column(TypeName = "Integer")] 
     public int user_id { get; set; }
     
     
+    [ForeignKey(nameof(user_id))]
     public Users user { get; set; } = null!;
 }
 
@@ -45,13 +51,14 @@ public class Games {
     public int game_id { get; set; }
 
     [Column(TypeName = "Integer")] 
+    [StringLength(75)]
     public string title { get; set; } = null!;
 
     [Column(TypeName = "Integer")]
     public ulong server_id { get; set; }
     
-    
-    public Tables Table { get; set; } = null!;
+    [ForeignKey(nameof(server_id))]
+    public Servers Server { get; set; } = null!;
 }
 
 public class Categories {
@@ -62,15 +69,18 @@ public class Categories {
     public int game_id { get; set; }
     
     [Column(TypeName = "Text")]
+    [StringLength(75)]
     public string name { get; set; } = null!;
 
     [Column(TypeName = "Text")]
+    [StringLength(75)]
     public string unit { get; set; } = null!;
     
     [Column(TypeName = "Integer")]
     public bool higherBetter { get; set; }
     
     
+    [ForeignKey(nameof(game_id))]
     public Games game { get; set; } = null!;
 }
 
@@ -88,7 +98,9 @@ public class Scores {
     public int user_id { get; set; }
     
     
+    [ForeignKey(nameof(category_id))]
     public Categories category { get; set; } = null!;
-
+    
+    [ForeignKey(nameof(user_id))]
     public Users user { get; set; } = null!;
 }
