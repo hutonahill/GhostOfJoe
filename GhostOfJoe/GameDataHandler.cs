@@ -5,11 +5,12 @@ using Discord;
 using Discord.WebSocket;
 using GhostOfJoe.Data;
 using GhostOfJoe.Models;
+using Game = GhostOfJoe.Models.Game;
 
 
 namespace GhostOfJoe;
 
-public static class DataHandler {
+public static class GameDataHandler {
     
     /// <summary>
     /// Gets a users ID in the database.
@@ -38,8 +39,8 @@ public static class DataHandler {
         int? result = null;
         
         List<int> userIdResult = context.Users
-            .Where(u => u.server_id == guild.Id && u.discordUser_id == user.Id)
-            .Select(u => u.user_id).ToList();
+            .Where(u => u.ServerId == guild.Id && u.DiscordUserId == user.Id)
+            .Select(u => u.UserId).ToList();
 
         if (await userIdResult.OnlyOneAsync($"Got more than one User for discordUserId == `{user.Id}` " +
                                        $"and server_id == `{guild.Id}`")) {
@@ -68,10 +69,10 @@ public static class DataHandler {
         }
 
         if (await getUserIdAsync(guild, user, context) == null) {
-            Users newUser = new Users();
+            User newUser = new User();
 
-            newUser.discordUser_id = user.Id;
-            newUser.server_id = guild.Id;
+            newUser.DiscordUserId = user.Id;
+            newUser.ServerId = guild.Id;
         
             context.Users.Add(newUser);
             await context.SaveChangesAsync();
@@ -123,7 +124,7 @@ public static class DataHandler {
     /// <param name="title">The title of the game.</param>
     /// <param name="context">Optional, Lets you avoid creating a new instance of context.</param>
     /// <returns>the game or null if none was found</returns>
-    private static async Task<Games?> GetGame(this IGuild guild, string title, ServerDataContext? context = null) {
+    private static async Task<Game?> GetGame(this IGuild guild, string title, ServerDataContext? context = null) {
         // handle the optional context
         bool CreatedContext = false;
         if (context == null) {
@@ -132,11 +133,11 @@ public static class DataHandler {
         }
         
         // create an output var.
-        Games? output = null;
+        Game? output = null;
         
         // try to get the game
-        List<Games> gamesList = context.Games
-            .Where(g => g.title == title && g.server_id == guild.Id)
+        List<Game> gamesList = context.Games
+            .Where(g => g.Title == title && g.ServerId == guild.Id)
             .ToList();
         
         

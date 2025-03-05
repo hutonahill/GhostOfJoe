@@ -146,7 +146,7 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
     [SlashCommand("get_game_categories", "Get the categories for a game in the high score database")]
     public async Task GetGameCategoriesAsync([Summary(description:"game to get the categories of"), Autocomplete(typeof(CompleteGame))] string game) {
         await DeferAsync();
-        List<string>? categoryList = await DataHandler.GetCategoriesWithScores(Context.User, Context.Guild, game);
+        List<string>? categoryList = await GameDataHandler.GetCategoriesWithScores(Context.User, Context.Guild, game);
         
          if(categoryList != null){   
              string categoryString = "";
@@ -356,14 +356,14 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
     [RequireUserPermission(GuildPermission.Administrator)]
     public async Task SetSettingsAsync(string key, string value) {
         try {
-            Type? dataType = DataHandler.GetSettingDataType(key);
+            Type? dataType = GameDataHandler.GetSettingDataType(key);
     
             if (dataType == null) {
                 await RespondAsync($"The setting '{key}' does not exist.");
                 return;
             }
 
-            if (!DataHandler.TryParseType(dataType, value, out object parsedValue)) {
+            if (!GameDataHandler.TryParseType(dataType, value, out object parsedValue)) {
                 await RespondAsync($"Invalid value '{value}' for the setting '{key}' of type '{dataType.FullName}'.");
                 return;
             }
