@@ -6,65 +6,49 @@ using JsonSerializer = Newtonsoft.Json.JsonSerializer;
 
 namespace GhostOfJoe;
 
-public class Config {
-
-    public Dictionary<string, SettingBase?> GlobalSettings { get; set; }
-
-    public ulong JoeUserId { get; set; }
-        
-    public List<ulong> AdminServers { get; set; }
+public class DiscordOptions {
     
+    public const string SectionName = "BotSettings";
+    
+    public Dictionary<string, ISetting?> GlobalSettings { get; set; } = new() {
+        { "NsfwFlow", new Setting<bool>("Flow is considered NSFW", true) },
+        { "ScoreRoundsTo", new Setting<uint>("Round scores to this place", 10) }
+    };
+
+    public ulong JoeUserId { get; set; } = 238096751607676928;
+
+    public List<ulong> AdminServers { get; set; } = new() { 859184385889796096, 573289805472071680 };
+
     // a logging channel on my personal discord
-    public ulong LoggingChannel { get; set; }
+    public ulong LoggingChannel { get; set; } = 1269384832064950384;
 
     // my user_id
-    public ulong AdminUser { get; set; }
-    
-    public string DISCORD_KEY { get; set; }
+    public ulong AdminUser { get; set; } = 168496575369183232;
 
-    public string pasteBinUsername { get; set; }
-    
-    public string pasteBinPassword { get; set; }
+    public string DISCORD_KEY { get; set; } = "DISCORD API KEY";
 
-    public string pasteApiKey { get; set; }
+    public string pasteBinUsername { get; set; } = "USERNAME";
 
-    public string flowPasteKey { get; set; }
+    public string pasteBinPassword { get; set; } = "PASSWORD";
 
-    public Config() {
-        GlobalSettings = new Dictionary<string, SettingBase?> {
-            { "NsfwFlow", new Setting<bool>("Flow is considered NSFW", true) },
-            { "ScoreRoundsTo", new Setting<uint>("Round scores to this place", 10) },
-            {"BlacklistedUsers", new Setting<List<ulong>>("User Ids that may not interact with the bot", new List<ulong>())}
-        };
+    public string pasteApiKey { get; set; } = "PASTE API KEY";
 
-        JoeUserId = 238096751607676928;
-        //                              my personal server,  The party bus
-        AdminServers = new List<ulong> { 859184385889796096, 573289805472071680 };
-        
-        LoggingChannel = 1269384832064950384;
-        
-        AdminUser = 168496575369183232;
-        
-        DISCORD_KEY = "DISCORD API KEY";
+    public string flowPasteKey { get; set; } = "taDVgTGF";
 
-        pasteBinPassword = "PASSWORD";
-        pasteBinUsername = "USERNAME";
+    public List<ulong> BlacklistedUsers { get; set; } = new();
 
-        pasteApiKey = "PASTE API KEY";
-
-        flowPasteKey = "taDVgTGF";
-    }
+    //                              my personal server,  The party bus
 }
     
 
 
-public abstract class SettingBase {
+public abstract class ISetting {
     public string? Description { get; init; }
     
     public abstract Type getType();
 }
 
-public class Setting<T> : SettingBase {
+public class Setting<T> : ISetting {
     public T Value { get; set; }
 
     public override string ToString() {
@@ -86,11 +70,11 @@ public class Setting<T> : SettingBase {
 public class SettingBaseConverter : JsonConverter {
 
     public override bool CanConvert(Type objectType) {
-        return typeof(SettingBase).IsAssignableFrom(objectType);
+        return typeof(ISetting).IsAssignableFrom(objectType);
     }
 
     public override void WriteJson(JsonWriter writer, object? value, JsonSerializer serializer) {
-        var settingBase = value as SettingBase;
+        var settingBase = value as ISetting;
 
         Debug.Assert(settingBase != null, nameof(settingBase) + " != null");
 

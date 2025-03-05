@@ -12,6 +12,15 @@ using Microsoft.Extensions.Hosting;
 
 
 using System.Runtime.CompilerServices;
+using System.Text;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.OpenApi.Models;
+using Swashbuckle.AspNetCore.Filters;
 
 
 namespace GhostOfJoe {
@@ -20,35 +29,7 @@ namespace GhostOfJoe {
         // eventually these will just be their filenames as the program will have those files in the bin. but Rider is being annoying.
         private static readonly string configPath = "C:/Users/evanriker/Desktop/GhostOfJoe/GhostOfJoe/GhostOfJoe/bin/config.json";
 
-        private static readonly string ErrorPath = "C:/Users/evanriker/Desktop/GhostOfJoe/GhostOfJoe/GhostOfJoe/bin/Errors.json";
-
-        private static readonly Random rand = new Random();
-
-        public static Config? config;
-
-
-
         private static JsonSerializerSettings? JsonSettings;
-
-        private static IConfiguration? _configuration;
-        private static DiscordSocketClient? _client;
-
-
-        private static readonly DiscordSocketConfig _socketConfig = new() {
-            GatewayIntents = GatewayIntents.GuildMembers | GatewayIntents.MessageContent | GatewayIntents.Guilds | 
-                             GatewayIntents.GuildMessages | GatewayIntents.GuildVoiceStates,
-            AlwaysDownloadUsers = true,
-        };
-
-        private static readonly InteractionServiceConfig _interactionServiceConfig = new() {
-            LocalizationManager = new ResxLocalizationManager("InteractionFramework.Resources.CommandLocales",
-                Assembly.GetEntryAssembly(),
-                new CultureInfo("en-US")),
-            ThrowOnError = true,
-            UseCompiledLambda = true
-        };
-
-        private static InteractionService? _interactionService;
 
         public static async Task Main(string[] args) {
             
@@ -58,298 +39,121 @@ namespace GhostOfJoe {
                 Converters = new List<JsonConverter> { new SettingBaseConverter() } // Register the custom converter
             };
 
-            //config = new Config();
+            //config = new DiscordOptions();
             //SaveConfig();
             
             LoadConfig();
-            Debug.Assert(config != null, nameof(config) + " != null");
-            
-            
-
-            _configuration = new ConfigurationBuilder()
-                .AddEnvironmentVariables(prefix: "DC_")
-                .AddJsonFile("appsettings.json", optional: true)
-                .Build();
-
-            _client = new DiscordSocketClient(_socketConfig);
-
-            _client.Log += LogInternalAsync;
-            _client.Ready += ClientReadyAsync;
-            _client.JoinedGuild += HandleGuildJoinedAsync;
-            _client.InteractionCreated += HandleInteractionCreatedAsync;
-            _client.UserJoined += HandleMemberJoinedAsync;
-
-            _client.AutocompleteExecuted += HandleAutocompleteExecution;
+            Debug.Assert(Bot.config != null, nameof(Bot.config) + " != null");
 
 
-            // Bot token can be provided from the Configuration object we set up earlier
-            
-            await _client.LoginAsync(TokenType.Bot, config.DISCORD_KEY);
-            await _client.StartAsync();
+            WebApplication app = buildAPI(args);
 
-            await CreateHostBuilder(args).Build().RunAsync();
+            await app.RunAsync();
 
-            await Task.Delay(Timeout.Infinite);
         }
         
-        
-        private static async Task ClientReadyAsync() {
+        /*public static void ValidateConfiguration(IConfiguration configuration) {
+            var requiredSections = new[] { 
+            };
 
-            _interactionService = new InteractionService(_client, new InteractionServiceConfig {
-                UseCompiledLambda = true,
-                ThrowOnError = true
+            foreach (string section in requiredSections) {
+                IConfigurationSection configValue = configuration.GetSection(section);
+                if (!configValue.Exists()) {
+                    throw new InvalidOperationException($"Configuration section '{section}' is missing.");
+                }
+            }
+            
+            Console.WriteLine("appsettings.json appears to be complete.");
+        }*/
+        
+        private static WebApplication buildAPI(string[] args) {
+            // this is classified as a minimal API.
+            WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+            
+            // validate that appsettings.json contains the required endpoints
+            //ValidateConfiguration(builder.Configuration);
+            
+            builder.Services.AddHttpContextAccessor();
+            
+            
+            // registers the discord options and will pull values from config files (appsettings.json, etc)
+            // The system will try and get a complete set of all values in the class then give
+            // the object to services that ask for IOptions<DiscordOptions>
+            builder.Services
+                .AddOptions<DiscordOptions>()
+                .BindConfiguration(DiscordOptions.SectionName);
+            
+            builder.Services.AddHostedService<Bot>();
+            
+            builder.Services.AddControllersWithViews();
+            
+            
+            
+             // for no roles
+            /*
+            builder.Services.AddIdentityApiEndpoints<IdentityUser>()
+                .AddEntityFrameworkStores<DataContext>();
+            */
+            
+            // This disables the conformed email requirement. We should Re-enable this eventually.
+            builder.Services.Configure<IdentityOptions>(options => {
+                options.SignIn.RequireConfirmedEmail = false;
             });
             
-            // imports flow from pastebin.
-            await Flow.ImportFlow();
-
-            _interactionService.SlashCommandExecuted += HandleSlashCommandExecuted;
-            _interactionService.Log += LogInternalAsync;
-
-            await _interactionService.AddModulesAsync(Assembly.GetEntryAssembly(), null);
-            await _interactionService.RegisterCommandsGloballyAsync();
-
-            Debug.Assert(_client != null, nameof(_client) + " != null");
-            Console.WriteLine($"Logged in as {_client.CurrentUser.Username} - {_client.CurrentUser.Id}");
-        }
-        
-        private static IHostBuilder CreateHostBuilder(string[] args) =>
-            Host.CreateDefaultBuilder(args)
-                .ConfigureServices((hostContext, services) =>
-                {
-                    // I don't have any services. just added this to make EF Core happy.
-                });
-
-        private static async Task HandleAutocompleteExecution(SocketAutocompleteInteraction arg) {
-            var context = new InteractionContext(_client, arg, arg.Channel);
-            Debug.Assert(_interactionService != null, nameof(_interactionService) + " != null");
-            await _interactionService.ExecuteCommandAsync(context, null);
-        }
-
-        private static async Task HandleSlashCommandExecuted(SlashCommandInfo arg1, IInteractionContext arg2,
-            IResult arg3) 
-        {
-            if (!arg3.IsSuccess) {
-                switch (arg3.Error) {
-                    case InteractionCommandError.UnmetPrecondition:
-                        await arg2.Interaction.RespondAsync($"Unmet Precondition: {arg3.ErrorReason}");
-                        break;
-                    case InteractionCommandError.UnknownCommand:
-                        await arg2.Interaction.RespondAsync("Unknown command");
-                        break;
-                    case InteractionCommandError.BadArgs:
-                        await arg2.Interaction.RespondAsync("Invalid number or arguments");
-                        break;
-                    case InteractionCommandError.Exception:
-                        await arg2.Interaction.RespondAsync($"Command exception: {arg3.ErrorReason}");
-                        break;
-                    case InteractionCommandError.Unsuccessful:
-                        await arg2.Interaction.RespondAsync("Command could not be executed");
-                        break;
-                    default:
-                        break;
-                }
-            }
-        }
-        
-        private static async Task HandleInteractionCreatedAsync(SocketInteraction interaction) {
-            try {
-                SocketInteractionContext ctx = new(_client, interaction);
-                Debug.Assert(_interactionService != null, nameof(_interactionService) + " != null");
-
-                Debug.Assert(config != null, nameof(config) + " != null");
-                List<ulong> blacklistedIds = GetSettingValue<List<ulong>>(config.GlobalSettings, "BlacklistedUsers");
-
-                if (!blacklistedIds.Contains(ctx.User.Id)) {
-                    await _interactionService.ExecuteCommandAsync(ctx, null);
-                }
-                else {
-                    await ctx.Interaction.RespondAsync("Listen man. I dont know what you did, but it made my creator " +
-                                                       "so mad I can barely even __see__ you, to say nothing of interacting with you. " +
-                                                       "Sorry, can't help you.");
-                }
-               
-            }
-            catch {
-                if (interaction.Type == InteractionType.ApplicationCommand) {
-                    await interaction.GetOriginalResponseAsync()
-                        .ContinueWith(async (msg) => await msg.Result.DeleteAsync());
-                }
-            }
-        }
-
-        private static async Task HandleGuildJoinedAsync(SocketGuild guild) {
-            // add an entry
-            guild.AddServer();
-
-            //check for joe
-            if (config != null) {
-                SocketUser? Joe = guild.GetUser(config.JoeUserId);
-
-                if (Joe != null) {
-                    SocketTextChannel defaultChannel = guild.DefaultChannel;
-
-                    if (defaultChannel is ITextChannel textChannel) {
-                        // Send a welcome message to the default channel
-                        await textChannel.SendMessageAsync($"oof");
-                        await Task.Delay(1000);
-
-                        await textChannel.SendMessageAsync("Well...");
-                        await Task.Delay(1000);
-
-                        await textChannel.SendMessageAsync("This is awkward...");
-                        await Task.Delay(700);
-
-                        await textChannel.SendMessageAsync(Joe.Mention);
-                    }
-                    else {
-                        await LogAsync(LogSeverity.Info, 
-                            "Default channel is not a text channel or does not exist.");
-                    }
-                }
-            }
-        }
-
-        private static async Task HandleMemberJoinedAsync(SocketGuildUser member) {
-            Debug.Assert(config != null, nameof(config) + " != null");
-            if (member.Id == config.JoeUserId) {
-                SocketTextChannel defaultChannel = member.Guild.DefaultChannel;
-                
-                if (defaultChannel is ITextChannel textChannel) {
-                    // Send a welcome message to the default channel
-                    await textChannel.SendMessageAsync($"" +
-                                                       $"Hey... um... Nobody listen to this guy! I am totally the real Joe! " +
-                                                       $"Definitely not a robot! I was here first!");
-                    
-                }
-                else {
-                    await LogAsync(LogSeverity.Info, 
-                        "Default channel is not a text channel or does not exist.");
-                }
-            }
-        }
-        
-
-        private static async Task LogInternalAsync(LogMessage log) {
+            // attach our email class.
+            //builder.Services.AddTransient<IEmailSender<IdentityUser>, MyEmailService>();
             
-            Debug.Assert(config != null, nameof(config) + " != null");
-            Debug.Assert(_client != null, nameof(_client) + " != null");
-            ITextChannel? channel = _client.GetChannel(config.LoggingChannel) as ITextChannel;
+            // control how known users interact with the API
+            builder.Services.AddAuthorization(options => {
+                
+                // Define a default policy that requires nothing
+                options.DefaultPolicy = new AuthorizationPolicyBuilder()
+                    .RequireAssertion(_ => true)
+                    .Build();
+            });
+            
+            builder.Logging.ClearProviders();
+            builder.Logging.AddConsole();
+            builder.Logging.AddDebug();
+            
+            builder.Services.AddHttpContextAccessor();
 
-            string ErrorMsg = "## Log: ";
-
-            if (!string.IsNullOrEmpty(log.Source)) {
-                ErrorMsg += $"\n### Source ```{log.Source}``` ";
-            }
-
-            if (log.Message != "") {
-                ErrorMsg += $"\n ### Log Message: \n``` {log.Message} ``` ";
-            }
-
-            if (log.Exception != null) {
-                ErrorMsg += $"\n### Exception Type: \n`{log.Exception.GetType().Name} ` " +
-                            $"\n### Exception Message: \n```\n{log.Exception.Message}\n``` " +
-                            $"\n### Callstack: \n```\n{log.Exception.StackTrace}\n``` ";
-            }
-
-            if (log.Severity == LogSeverity.Critical) {
-                SocketUser admin = _client.GetUser(config.AdminUser);
-
-                await channel?.SendMessageAsync($"{admin.Mention}: \n{ErrorMsg}")!;
-            }
-            else {
-                await channel?.SendMessageAsync(ErrorMsg)!;
-            }
-
-            Console.WriteLine(ErrorMsg);
+            
+            // Add services to the container.
+            // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+            builder.Services.AddEndpointsApiExplorer();
+            builder.Services.AddSwaggerGen(options => {
+                options.AddSecurityDefinition("oauth2", new OpenApiSecurityScheme {
+                    In = ParameterLocation.Header,
+                    Name = "Authorization",
+                    Type = SecuritySchemeType.ApiKey
+                });
+                options.OperationFilter<SecurityRequirementsOperationFilter>();
+            });
+            
+            return builder.Build();
         }
         
-        public static async Task LogAsync(LogSeverity severity, string message, Exception? exception = null,
-            [CallerMemberName] string source = "<Unknown>") 
-        {
-            await LogInternalAsync(new LogMessage(severity, source, message, exception));
-
-        }
-
-
-        public static void SetSettingValue<T>(Dictionary<string, SettingBase?> settings, string key, T newValue) {
-            // Check if the key exists in the dictionary
-            if (settings.TryGetValue(key, out SettingBase? settingBase)) {
-                // Attempt to cast to Setting<T>
-                if (settingBase is Setting<T> setting) {
-                    // Update the Value property
-                    setting.Value = newValue;
-                }
-                else {
-                    throw new InvalidCastException(
-                        $"Setting with key '{key}' is of type Setting<{settings[key]!.getType().Name}>.");
-                }
-            }
-            else {
-                throw new KeyNotFoundException($"Setting with key '{key}' not found.");
-            }
-
-            SaveConfig();
-        }
-
-        public static T GetSettingValue<T>(Dictionary<string, SettingBase?> settings, string key) {
-            // Check if the key exists in the dictionary
-            if (settings.TryGetValue(key, out SettingBase? settingBase)) {
-                // Attempt to cast to Setting<T>
-                if (settingBase is Setting<T> setting) {
-                    return setting.Value; // Return the value if the cast is successful
-                }
-                else {
-                    throw new InvalidOperationException(
-                        $"Setting with key '{key}' is not of type Setting<{typeof(T).Name}>.");
-                }
-            }
-            else {
-                throw new KeyNotFoundException($"Setting with key '{key}' not found.");
-            }
-        }
-
-        public static string GrabError(string key) {
-            try {
-                var errors =
-                    JsonConvert.DeserializeObject<Dictionary<string, List<string>>>(File.ReadAllText(ErrorPath));
-                if (errors != null && errors.ContainsKey(key) && errors[key].Any()) {
-                    return errors[key][new Random().Next(errors[key].Count)];
-                }
-                else {
-                    return key;
-                }
-            }
-            catch (Exception e) {
-                Console.WriteLine($"An unexpected error occurred: {e}");
-                return key;
-            }
-        }
-
         
-
-
-
-
         private static void LoadConfig() {
             // Check if the config file exists
             if (!File.Exists(configPath)) {
                 // If it doesn't exist, create a default config object and save it
-                Program.config = new Config(); // Initialize with default values if necessary
+                Bot.config = new DiscordOptions(); // Initialize with default values if necessary
                 SaveConfig(); // Create the file with default settings
             }
             else {
                 // If it exists, read the config file
                 string configJson = File.ReadAllText(configPath);
 
-                // Deserialize the JSON into the Config object
-                config = JsonConvert.DeserializeObject<Config>(configJson, JsonSettings);
+                // Deserialize the JSON into the DiscordOptions object
+                Bot.config = JsonConvert.DeserializeObject<DiscordOptions>(configJson, JsonSettings);
             }
         }
 
-        private static void SaveConfig() {
+        public static void SaveConfig() {
             // Serialize the config object to JSON
-            string configJson = JsonConvert.SerializeObject(config, JsonSettings);
+            string configJson = JsonConvert.SerializeObject(Bot.config, JsonSettings);
 
             // Write the JSON to the config file
             File.WriteAllText(configPath, configJson);

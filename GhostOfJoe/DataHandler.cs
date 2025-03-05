@@ -35,7 +35,7 @@ public static class DataHandler {
             CreatedContext = true;
         }
 
-        int? result;
+        int? result = null;
         
         List<int> userIdResult = context.Users
             .Where(u => u.server_id == guild.Id && u.discordUser_id == user.Id)
@@ -43,29 +43,14 @@ public static class DataHandler {
 
         if (await userIdResult.OnlyOneAsync($"Got more than one User for discordUserId == `{user.Id}` " +
                                        $"and server_id == `{guild.Id}`")) {
-            
-        }
-
-        if (userIdResult.Count > 1) {
-            // TODO: we have a problem, If this query returns more than once result somethings wrong with the database.
-            if (CreatedContext) {
-                context.Dispose();
-            }
-            result = null;
-        }
-        else if (userIdResult.Count == 0) {
-            
-            result = null;
-        }
-        else {
-            
             result = userIdResult.First();
         }
         
         
         if (CreatedContext) {
-            context.Dispose();
+            await context.DisposeAsync();
         }
+        
         return result;
     }
     
@@ -75,7 +60,7 @@ public static class DataHandler {
     /// <param name="guild">The server the user is a part of</param>
     /// <param name="user">The user to add</param>
     /// <param name="context">Optional, Lets you avoid creating a new instance of context.</param>
-    private static async Task AddUser(this IGuild guild, IUser user, ServerDataContext? context = null) {
+    private static async Task AddUserAsync(this IGuild guild, IUser user, ServerDataContext? context = null) {
         bool CreatedContext = false;
         if (context == null) {
             context = new ServerDataContext();
@@ -103,8 +88,8 @@ public static class DataHandler {
     /// </summary>
     /// <param name="member">The member to add</param>
     /// <param name="context">Optional, Lets you avoid creating a new instance of context.</param>
-    private static async Task AddUser(this IGuildUser member, ServerDataContext? context = null) {
-        await member.Guild.AddUser(member, context);
+    private static async Task AddUserAsync(this IGuildUser member, ServerDataContext? context = null) {
+        await member.Guild.AddUserAsync(member, context);
     }
     
     /// <summary>
@@ -124,7 +109,7 @@ public static class DataHandler {
             message ??= $"List containing `{typeof(T).FullName}` was supposed to contain 1 or 0 items. It contained {list.Count}." +
                         $"\n ```{list}```";
 
-            await Program.LogAsync(LogSeverity.Critical, message);
+            await Bot.LogAsync(LogSeverity.Critical, message);
             return false;
         }
 
@@ -247,14 +232,14 @@ public static class DataHandler {
         List<string> games;
         
         try {
-            await using var context = new ServerDataContext();
-            games = await context.Games
+            await using ServerDataContext context = new ServerDataContext();
+            games = context.Games
                 .Where(g => g.server_id == guild.Id)
                 .Select(g => g.title)
-                .ToListAsync();
+                .ToList();
         }
-        catch (Exception ex) {    
-            await Program.LogAsync(LogSeverity.Error,  ex.Message, ex);
+        catch (Exception ex) {
+            await Bot.LogAsync(LogSeverity.Error,  ex.Message, ex);
             throw;
         }
         
@@ -296,7 +281,7 @@ public static class DataHandler {
             }
             catch (Exception ex)
             {
-                await Program.LogAsync(LogSeverity.Error, ex.Message, ex);
+                await Bot.LogAsync(LogSeverity.Error, ex.Message, ex);
                 throw;
             }
     }
@@ -373,7 +358,7 @@ public static class DataHandler {
     public static async Task<bool> AddTitle(this IGuildUser member, string title) {
         await using ServerDataContext context = new ServerDataContext();
 
-        await member.AddUser();
+        await member.AddUserAsync();
         
         int databaseUserId = await member.getUserIdAsync(context) ?? throw new UnreachableException("We just added the user to the database, how are they not there?");
         
@@ -513,7 +498,7 @@ public static class DataHandler {
                     return true;
                 }
                 catch (Exception e) {
-                    await Program.LogAsync(LogSeverity.Warning,
+                    await Bot.LogAsync(LogSeverity.Warning,
                         $"Failed to change setting `{key}` for server {guild.Name}(`{guild.Id}`) to {value}");
                     return null;
                 }
@@ -546,7 +531,7 @@ public static class DataHandler {
         
         // there is a duplicate freak out there should never be a duplicate.
         else if (numGames > 1) {
-            await Program.LogAsync(LogSeverity.Critical,
+            await Bot.LogAsync(LogSeverity.Critical,
                 $"Found a duplicate game `{title}` for server {guild.Name}(`{guild.Id}`)");
             return false;
         }
@@ -611,7 +596,7 @@ public static class DataHandler {
             return false;
         }
         else if (numbCategories > 1) {
-            await Program.LogAsync(LogSeverity.Critical,
+            await Bot.LogAsync(LogSeverity.Critical,
                 $"Found a duplicate category `{categoryName} in game {game.title}(`{game.game_id}`)");
             return false;
         }
@@ -642,7 +627,7 @@ public static class DataHandler {
 
         await using ServerDataContext context = new ServerDataContext();
         
-        await guild.AddUser(user, context);
+        await guild.AddUserAsync(user, context);
 
         Games? game = await guild.GetGame(gameTitle, context);
 
@@ -665,7 +650,7 @@ public static class DataHandler {
                     
             // freak out if there is a duplicate scores
             if (scoresList.Count > 1) {
-                await Program.LogAsync(LogSeverity.Critical,
+                await Bot.LogAsync(LogSeverity.Critical,
                     $"Found {scoresList.Count} duplicate score(s) for {user.Username}(`{dbUser.user_id} in category " +
                     $"{category.name}(`{category.category_id}`)");
                 return null;
@@ -775,7 +760,35 @@ public static class DataHandler {
 
         return null;
     }
-    
 
+    public static async Task<bool> AddScore(this IGuild guild, IUser discordUser, string gameTitle, string categoryName, double value) {
+        ServerDataContext Context = new ServerDataContext();
+
+        await guild.AddUserAsync(discordUser, Context);
+        
+        Users user = await Context.Users
+            .Where(u => u.server_id == guild.Id && u.discordUser_id == discordUser.Id)
+            .FirstOrDefaultAsync();
+
+        Categories? category = await Context.Categories
+            .Where(c => c.game.title == gameTitle && c.name == categoryName)
+            .FirstOrDefaultAsync();
+
+        if (category != null) {
+            Scores newScore = new Scores {
+                user = user,
+                category = category,
+                value = value
+            };
+
+            await Context.Scores.AddAsync(newScore);
+
+            await Context.SaveChangesAsync();
+
+            return true;
+        }
+
+        return false;
+    }
     
 }

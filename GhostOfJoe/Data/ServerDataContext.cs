@@ -22,11 +22,16 @@ public class ServerDataContext : DbContext {
 
 
     // hard coding this is a bad idea
-    private const string DatabasePath = @"C:\Users\evanriker\Desktop\GhostOfJoe\hostOfJoe\GhostOfJoe\bin\ServerData.db";
+    private const string DatabasePath = @"C:\Users\evanriker\Desktop\GhostOfJoe\GhostOfJoe\GhostOfJoe\bin\ServerData.db";
     
     private const string ServerDataConnection = $"Data Source={DatabasePath};";
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder) {
         optionsBuilder.UseSqlite(ServerDataConnection);
+    }
+    
+    public void InitializeDatabase() {
+        // Ensure that the database file is created if it doesn't exist
+        Database.EnsureCreated();
     }
 }   

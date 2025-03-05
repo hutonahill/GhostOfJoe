@@ -10,10 +10,10 @@ public static class Flow {
     
     private static async Task<string> GetRawPrivatePaste(string pasteKey, string userKey) {
         using var client = new HttpClient();
-        Debug.Assert(Program.config != null, "Program.config != null");
+        Debug.Assert(Bot.config != null, "Program.config != null");
         var values = new FormUrlEncodedContent(new[]
         {
-            new KeyValuePair<string, string>("api_dev_key", Program.config.pasteApiKey),
+            new KeyValuePair<string, string>("api_dev_key", Bot.config.pasteApiKey),
             new KeyValuePair<string, string>("api_user_key", userKey),
             new KeyValuePair<string, string>("api_paste_key", pasteKey),
             new KeyValuePair<string, string>("api_option", "show_paste")
@@ -31,11 +31,11 @@ public static class Flow {
     private static async Task<string> GetUserKey() {
         using HttpClient client = new HttpClient();
 
-        Debug.Assert(Program.config != null, "Program.config != null");
+        Debug.Assert(Bot.config != null, "Program.config != null");
         FormUrlEncodedContent values = new FormUrlEncodedContent(new[] {
-            new KeyValuePair<string, string>("api_dev_key", Program.config.pasteApiKey),
-            new KeyValuePair<string, string>("api_user_name", Program.config.pasteBinUsername),
-            new KeyValuePair<string, string>("api_user_password", Program.config.pasteBinPassword)
+            new KeyValuePair<string, string>("api_dev_key", Bot.config.pasteApiKey),
+            new KeyValuePair<string, string>("api_user_name", Bot.config.pasteBinUsername),
+            new KeyValuePair<string, string>("api_user_password", Bot.config.pasteBinPassword)
         });
 
         var response = await client.PostAsync("https://pastebin.com/api/api_login.php", values);
@@ -50,15 +50,15 @@ public static class Flow {
     }
     
     public static async Task ImportFlow() {
-        Debug.Assert(Program.config != null, "Program.config != null");
+        Debug.Assert(Bot.config != null, "Program.config != null");
         string userKey = await GetUserKey();
 
-        string json = await GetRawPrivatePaste(Program.config.flowPasteKey, userKey);
+        string json = await GetRawPrivatePaste(Bot.config.flowPasteKey, userKey);
         
         flow = JsonConvert.DeserializeObject<List<List<string>>>(json);
 
         if (flow == null) {
-            await Program.LogAsync(LogSeverity.Critical,
+            await Bot.LogAsync(LogSeverity.Critical,
                 $"Can't get flow. Check your pastebin.");
         }
     }
@@ -93,7 +93,7 @@ public static class Flow {
             return GetVerses(chapter1, verse1, chapter2, verse2);
         }
 
-        return Program.GrabError("syntaxError");
+        return Bot.GrabError("syntaxError");
     }
     
     private static string GetVerse(int chapter, int verse) {
@@ -103,7 +103,7 @@ public static class Flow {
             return $"*Flow {chapter}:{verse}* - {verseContent}";
         }
 
-        return Program.GrabError("noFlow");
+        return Bot.GrabError("noFlow");
     }
 
     private static string GetVerses(int chapter1, int verse1, int chapter2, int verse2) {
@@ -121,7 +121,7 @@ public static class Flow {
                     output.Add($"*{verse}* {flow[chapter - 1][verse - 1]}\n");
                 }
                 else {
-                    return Program.GrabError("noFlow");
+                    return Bot.GrabError("noFlow");
                 }
             }
 

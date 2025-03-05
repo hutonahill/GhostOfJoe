@@ -21,7 +21,7 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
             await RespondAsync(await member.ApplyTitle());
         }
         catch (Exception ex) {
-            await Program.LogAsync(LogSeverity.Error, ex.Message, ex);
+            await Bot.LogAsync(LogSeverity.Error, ex.Message, ex);
         }
        
     }
@@ -29,7 +29,8 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
 
     [SlashCommand("grant_title", "Commemorate acts of glory by granting the honored one a glorious (and unique) title!")]
     [RequireUserPermission(GuildPermission.ManageGuild)]
-    public async Task GrantTitleAsync([Summary(description: "The user receiving the title")]SocketGuildUser member, 
+    public async Task GrantTitleAsync(
+        [Summary(description: "The user receiving the title"), Autocomplete(typeof(CompleteGuildMember))] SocketGuildUser member, 
         [Summary(description: "The title to be granted")] string title) 
     {
         IGuildUser? holder = await member.Guild.GetMemberWithTitle(title);
@@ -78,7 +79,6 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
     
     [SlashCommand("get_game_list", "Returns a list of games from the high score database")]
     public async Task GetGameListAsync() {
-        await DeferAsync();
         try {
             // Retrieve the game list
             List<string> gameList = await Context.Guild.GetGames();
@@ -94,27 +94,27 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
 
             // Send the list to the user
             if (gameList.Count > 0) {
-                await FollowupAsync($"**Games**:{gameListString}");
+                await RespondAsync($"**Games**:{gameListString}");
             }
             else {
-                await FollowupAsync("No games available.");
+                await RespondAsync("No games available.");
             }
         }
         catch (Exception ex) {
-            await Program.LogAsync(LogSeverity.Error, "", ex);
+            await Bot.LogAsync(LogSeverity.Error, "", ex);
             throw;
         }
     }
 
     [SlashCommand("add_game", "Adds a command to the high score database")]
     [RequireUserPermission(GuildPermission.ManageGuild)]
-    public async Task AddGameAsync( string game) {
-        await DeferAsync();
-        if (await Context.Guild.AddGame(game)) {
-            await FollowupAsync($"{game} has been added!");
+    public async Task AddGameAsync(string game) {
+        bool success = await Context.Guild.AddGame(game);
+        if (success) {
+            await RespondAsync($"{game} has been added!");
         }
         else {
-            await FollowupAsync("Sorry bub, can't do that one. I bet you already tried to add that");
+            await RespondAsync("Sorry bub, can't do that one. I bet you already tried to add that");
         }
     }
 
@@ -129,7 +129,7 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
             success = await Context.Guild.RemoveGameAsync(game_title);
         }
         catch (Exception ex) {
-            await Program.LogAsync(LogSeverity.Critical,
+            await Bot.LogAsync(LogSeverity.Critical,
                 $"Game removal failed: {ex.Message}", ex);
         }
         
@@ -178,7 +178,7 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
         }
         catch (Exception ex) {
             await ReplyAsync("I dont know man... I dont feel so good. Somethings off. My brain did a goof. ");
-            await Program.LogAsync(LogSeverity.Critical, "Failed to add game category", ex);
+            await Bot.LogAsync(LogSeverity.Critical, "Failed to add game category", ex);
         }
 
         if (success) {
@@ -211,7 +211,7 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
             success = await Context.Guild.RemoveCategoryAsync(gameTitle, category);
         }
         catch (Exception ex) {
-            await Program.LogAsync(LogSeverity.Critical, $"Game removal failed: {ex.Message}", ex);
+            await Bot.LogAsync(LogSeverity.Critical, $"Game removal failed: {ex.Message}", ex);
         }
         
         
@@ -224,7 +224,23 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
         
         await RespondAsync();
     }
-    
+
+    [SlashCommand("add_score", "Adds your score to a category.")]
+    public async Task AddScore(
+        [Summary("game_title", "Title of the game you want to add your score to"), Autocomplete(typeof(CompleteGame))]
+        string gameTitle,
+        [Summary("category", "The Category you want to add your score to."), Autocomplete(typeof(CompleteCategory))]
+        string category, [Summary("value", "The value of the score your recording")]double value) {
+        
+        bool success = await Context.Guild.AddScore(Context.User, gameTitle, category, value);
+
+        if (success == true) {
+            await RespondAsync("Boom. Done.");
+        }
+        else {
+            await RespondAsync("Um. not sure that one exists. Make sure I know about that game and category.");
+        }
+    }
     
     [SlashCommand("flow", "cite a passage from the Book of Flow")]
     public async Task FlowAsync(string userMessage) {
@@ -252,23 +268,23 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
     [SlashCommand("get_global_settings", "get a list of my global settings. Look don't touch.")]
     [RequireUserPermission((GuildPermission.Administrator))]
     public async Task GetGlobalSettingsAsync() {
-        Debug.Assert(Program.config != null, "Program.config != null");
+        Debug.Assert(Bot.config != null, "Program.config != null");
         await RespondAsync($"Only the bot owner may modify these settings, but server admins may see them." +
-                           $"\n## Current Global Settings:\n{getSettings(Program.config.GlobalSettings)}", ephemeral: true);
+                           $"\n## Current Global Settings:\n{getGlobalSettings(Bot.config.GlobalSettings)}", ephemeral: true);
         
     }
     
     
     [SlashCommand("set_global_setting", "Modify my global settings. Bussies only.")]
-    [RequireUserPermission(GuildPermission.Administrator)]
+    [Discord.Commands.RequireOwner]
     public async Task SetGlobalSettingAsync(
         [Summary(description:"The name of the setting you want to change"), Autocomplete(typeof(CompleteGlobalSettingKey))]string key, 
         string value) 
     {
-        Debug.Assert(Program.config != null, "Program.config != null");
-        if (Program.config.AdminServers.Contains(Context.Guild.Id)) {
-            Debug.Assert(Program.config != null, "Program.config != null");
-            Dictionary<string, SettingBase?> settings = Program.config.GlobalSettings;
+        Debug.Assert(Bot.config != null, "Program.config != null");
+        if (Bot.config.AdminServers.Contains(Context.Guild.Id)) {
+            Debug.Assert(Bot.config != null, "Program.config != null");
+            Dictionary<string, ISetting?> settings = Bot.config.GlobalSettings;
 
             Type SettingType = settings[key]!.getType();
         
@@ -295,15 +311,15 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
     }
     
     private string SetGlobalSetting<T>(string key, T value) {
-        Debug.Assert(Program.config != null, "Program.config != null");
-        if (!Program.config.AdminServers.Contains(Context.Guild.Id)) {
+        Debug.Assert(Bot.config != null, "Program.config != null");
+        if (!Bot.config.AdminServers.Contains(Context.Guild.Id)) {
             return ("Sorry, this Server is not cool enough to have admin powers. Long live the Party Bus");
         }
 
-        Debug.Assert(Program.config != null, "Program.config != null");
-        if (Program.config.GlobalSettings.ContainsKey(key)) {
+        Debug.Assert(Bot.config != null, "Program.config != null");
+        if (Bot.config.GlobalSettings.ContainsKey(key)) {
             try {
-                Program.SetSettingValue(Program.config.GlobalSettings, key, value);
+                Bot.SetSettingValue(Bot.config.GlobalSettings, key, value);
             }
             catch (InvalidCastException ex) {
                 return ex.Message;
@@ -337,7 +353,7 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
     
     
     [SlashCommand("set_settings", "Change your Server settings.")]
-    [Discord.Commands.RequireOwner]
+    [RequireUserPermission(GuildPermission.Administrator)]
     public async Task SetSettingsAsync(string key, string value) {
         try {
             Type? dataType = DataHandler.GetSettingDataType(key);
@@ -360,9 +376,9 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
                 return;
             }
         } catch (Exception ex) {
-            await Program.LogAsync(LogSeverity.Error, $"We got an error on Server " +
-                                          $"{Context.Guild.Name}(`{Context.Guild.Id}`) for a command executed by " +
-                                          $"{Context.User.Username}(`{Context.User.Id}`) ", ex);
+            await Bot.LogAsync(LogSeverity.Error, $"We got an error on Server " +
+                                                  $"{Context.Guild.Name}(`{Context.Guild.Id}`) for a command executed by " +
+                                                  $"{Context.User.Username}(`{Context.User.Id}`) ", ex);
             
             await RespondAsync($"My brain did an big oopses. I have informed the creator.");
         }
@@ -373,7 +389,7 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
     /// </summary>
     /// <param name="settings">the settings to convert</param>
     /// <returns></returns>
-    private string getSettings(Dictionary<string, SettingBase?> settings) {
+    private static string getGlobalSettings(Dictionary<string, ISetting?> settings) {
         List<string> settingList = new List<string>();
         
         foreach (string key in settings.Keys) {
@@ -395,7 +411,7 @@ public class CompleteGame : AutocompleteHandler {
         
         foreach (string game in games) {
             temp[index] = new AutocompleteResult(game, game);
-            index += 1;
+            index ++;
         }
 
         IEnumerable<AutocompleteResult> results = temp;
@@ -408,11 +424,32 @@ public class CompleteGame : AutocompleteHandler {
     }
 }
 
+public class CompleteGuildMember : AutocompleteHandler {
+    public override async Task<AutocompletionResult> GenerateSuggestionsAsync(IInteractionContext context,
+        IAutocompleteInteraction autocompleteInteraction, IParameterInfo parameter, IServiceProvider services) {
+
+        IReadOnlyCollection<IGuildUser> guildUsers = await context.Guild.GetUsersAsync();
+
+        AutocompleteResult[] temp = new AutocompleteResult[guildUsers.Count];
+
+        int index = 0;
+        foreach (IGuildUser guildUser in guildUsers) {
+            temp[index] = new AutocompleteResult(guildUser.Username, guildUser);
+            index++;
+        }
+
+        IEnumerable<AutocompleteResult> results = temp;
+
+
+        return AutocompletionResult.FromSuccess(results.Take(25));
+    }
+}
+
 public class CompleteGlobalSettingKey : AutocompleteHandler {
     public override Task<AutocompletionResult> GenerateSuggestionsAsync(IInteractionContext context, 
         IAutocompleteInteraction autocompleteInteraction, IParameterInfo parameter, IServiceProvider services) {
-        Debug.Assert(Program.config != null, "Program.config != null");
-        List<string> GlobalSettingKeys = new List<string>(Program.config.GlobalSettings.Keys);
+        Debug.Assert(Bot.config != null, "Program.config != null");
+        List<string> GlobalSettingKeys = new List<string>(Bot.config.GlobalSettings.Keys);
         AutocompleteResult[] temp = new AutocompleteResult[GlobalSettingKeys.Count];
 
         int index = 0;
