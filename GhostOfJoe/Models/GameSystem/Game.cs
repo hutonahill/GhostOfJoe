@@ -14,15 +14,15 @@ public partial class Game
     public int GameId { get; set; }
 
     [Column("server_id")]
-    public int ServerId { get; set; }
+    public ulong ServerId { get; set; }
 
     [Column("title")]
-    public string? Title { get; set; }
+    public string Title { get; set; } = null!;
 
     [InverseProperty("Game")]
-    public virtual ICollection<Category> Categories { get; set; } = new List<Category>();
+    public virtual ICollection<Categories> Categories { get; set; } = new List<Categories>();
 
     [ForeignKey("ServerId")]
     [InverseProperty("Games")]
-    public virtual Server Server { get; set; } = null!;
+    public virtual Servers Servers { get; set; } = null!;
 }

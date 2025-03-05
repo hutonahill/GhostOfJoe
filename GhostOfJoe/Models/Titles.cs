@@ -7,19 +7,19 @@ using Microsoft.EntityFrameworkCore;
 namespace GhostOfJoe.Models;
 
 [Table("titles")]
-public partial class Title
+public partial class Titles
 {
     [Key]
     [Column("title_id")]
     public int TitleId { get; set; }
 
     [Column("title")]
-    public string Title1 { get; set; } = null!;
+    public string Title { get; set; } = null!;
 
     [Column("user_id")]
     public int UserId { get; set; }
 
     [ForeignKey("UserId")]
     [InverseProperty("Titles")]
-    public virtual User User { get; set; } = null!;
+    public virtual Users Users { get; set; } = null!;
 }

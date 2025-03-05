@@ -7,18 +7,18 @@ using Microsoft.EntityFrameworkCore;
 namespace GhostOfJoe.Models;
 
 [Table("servers")]
-public partial class Server
+public partial class Servers
 {
     [Key]
     [Column("server_id")]
-    public int ServerId { get; set; }
+    public ulong ServerId { get; set; }
 
     [Column("safeFlow")]
-    public int SafeFlow { get; set; }
+    public bool SafeFlow { get; set; }
 
     [InverseProperty("Server")]
     public virtual ICollection<Game> Games { get; set; } = new List<Game>();
 
     [InverseProperty("Server")]
-    public virtual ICollection<User> Users { get; set; } = new List<User>();
+    public virtual ICollection<Users> Users { get; set; } = new List<Users>();
 }

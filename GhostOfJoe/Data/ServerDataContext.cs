@@ -20,7 +20,7 @@ public partial class ServerDataContext : DbContext
 
     public virtual DbSet<BillHasMetric> BillHasMetrics { get; set; }
 
-    public virtual DbSet<Category> Categories { get; set; }
+    public virtual DbSet<Categories> Categories { get; set; }
 
     public virtual DbSet<Game> Games { get; set; }
 
@@ -52,11 +52,11 @@ public partial class ServerDataContext : DbContext
 
     public virtual DbSet<Score> Scores { get; set; }
 
-    public virtual DbSet<Server> Servers { get; set; }
+    public virtual DbSet<Servers> Servers { get; set; }
 
-    public virtual DbSet<Title> Titles { get; set; }
+    public virtual DbSet<Titles> Titles { get; set; }
 
-    public virtual DbSet<User> Users { get; set; }
+    public virtual DbSet<Users> Users { get; set; }
 
     public virtual DbSet<VoteType> VoteTypes { get; set; }
 
@@ -71,14 +71,14 @@ public partial class ServerDataContext : DbContext
             entity.Property(e => e.BillId).ValueGeneratedNever();
         });
 
-        modelBuilder.Entity<Category>(entity =>
+        modelBuilder.Entity<Categories>(entity =>
         {
             entity.HasOne(d => d.Game).WithMany(p => p.Categories).OnDelete(DeleteBehavior.ClientSetNull);
         });
 
         modelBuilder.Entity<Game>(entity =>
         {
-            entity.HasOne(d => d.Server).WithMany(p => p.Games).OnDelete(DeleteBehavior.ClientSetNull);
+            entity.HasOne(d => d.Servers).WithMany(p => p.Games).OnDelete(DeleteBehavior.ClientSetNull);
         });
 
         modelBuilder.Entity<MetricHasWeight>(entity =>
@@ -116,28 +116,28 @@ public partial class ServerDataContext : DbContext
 
         modelBuilder.Entity<Score>(entity =>
         {
-            entity.HasOne(d => d.Category).WithMany(p => p.Scores).OnDelete(DeleteBehavior.ClientSetNull);
+            entity.HasOne(d => d.Categories).WithMany(p => p.Scores).OnDelete(DeleteBehavior.ClientSetNull);
 
-            entity.HasOne(d => d.User).WithMany(p => p.Scores).OnDelete(DeleteBehavior.ClientSetNull);
+            entity.HasOne(d => d.Users).WithMany(p => p.Scores).OnDelete(DeleteBehavior.ClientSetNull);
         });
 
-        modelBuilder.Entity<Server>(entity =>
+        modelBuilder.Entity<Servers>(entity =>
         {
             entity.Property(e => e.SafeFlow).HasDefaultValue(1);
         });
 
-        modelBuilder.Entity<Title>(entity =>
+        modelBuilder.Entity<Titles>(entity =>
         {
-            entity.HasOne(d => d.User).WithMany(p => p.Titles).OnDelete(DeleteBehavior.ClientSetNull);
+            entity.HasOne(d => d.Users).WithMany(p => p.Titles).OnDelete(DeleteBehavior.ClientSetNull);
         });
 
-        modelBuilder.Entity<User>(entity =>
+        modelBuilder.Entity<Users>(entity =>
         {
-            entity.HasOne(d => d.PreferedScoreSet).WithMany(p => p.Users).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(d => d.PreferredScoreSet).WithMany(p => p.Users).OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasOne(d => d.PreferedWeightSet).WithMany(p => p.Users).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(d => d.PreferredWeightSet).WithMany(p => p.Users).OnDelete(DeleteBehavior.Cascade);
 
-            entity.HasOne(d => d.Server).WithMany(p => p.Users).OnDelete(DeleteBehavior.ClientSetNull);
+            entity.HasOne(d => d.Servers).WithMany(p => p.Users).OnDelete(DeleteBehavior.ClientSetNull);
         });
 
         OnModelCreatingPartial(modelBuilder);

@@ -14,7 +14,7 @@ public partial class Score
     public int ScoreId { get; set; }
 
     [Column("value", TypeName = "NUMERIC (10, 1)")]
-    public byte[] Value { get; set; } = null!;
+    public double Value { get; set; }
 
     [Column("category_id")]
     public int CategoryId { get; set; }
@@ -24,9 +24,9 @@ public partial class Score
 
     [ForeignKey("CategoryId")]
     [InverseProperty("Scores")]
-    public virtual Category Category { get; set; } = null!;
+    public virtual Categories Categories { get; set; } = null!;
 
     [ForeignKey("UserId")]
     [InverseProperty("Scores")]
-    public virtual User User { get; set; } = null!;
+    public virtual Users Users { get; set; } = null!;
 }

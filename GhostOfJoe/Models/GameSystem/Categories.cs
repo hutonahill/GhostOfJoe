@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 namespace GhostOfJoe.Models;
 
 [Table("categories")]
-public partial class Category
+public partial class Categories
 {
     [Key]
     [Column("category_id")]
@@ -23,7 +23,7 @@ public partial class Category
     public string Unit { get; set; } = null!;
 
     [Column("higherBetter")]
-    public int HigherBetter { get; set; }
+    public bool HigherBetter { get; set; }
 
     [ForeignKey("GameId")]
     [InverseProperty("Categories")]

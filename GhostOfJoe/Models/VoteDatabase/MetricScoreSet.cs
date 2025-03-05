@@ -16,6 +16,6 @@ public partial class MetricScoreSet
     [Column("name")]
     public string Name { get; set; } = null!;
 
-    [InverseProperty("PreferedScoreSet")]
-    public virtual ICollection<User> Users { get; set; } = new List<User>();
+    [InverseProperty("PreferredScoreSet")]
+    public virtual ICollection<Users> Users { get; set; } = new List<Users>();
 }

@@ -69,12 +69,12 @@ public static class GameDataHandler {
         }
 
         if (await getUserIdAsync(guild, user, context) == null) {
-            User newUser = new User();
+            Users newUsers = new Users();
 
-            newUser.DiscordUserId = user.Id;
-            newUser.ServerId = guild.Id;
+            newUsers.DiscordUserId = user.Id;
+            newUsers.ServerId = guild.Id;
         
-            context.Users.Add(newUser);
+            context.Users.Add(newUsers);
             await context.SaveChangesAsync();
         }
         
@@ -162,7 +162,7 @@ public static class GameDataHandler {
     /// <param name="name">The name of the category</param>
     /// <param name="context">Optional, Lets you avoid creating a new instance of context.</param>
     /// <returns>The category or null if none was found</returns>
-    private static async Task<Categories?> GetCategory(this Games game, string name, ServerDataContext? context = null) {
+    private static async Task<Categories?> GetCategory(this Game game, string name, ServerDataContext? context = null) {
         // handle the optional context
         bool CreatedContext = false;
         
@@ -174,11 +174,11 @@ public static class GameDataHandler {
         Categories? output = null;
 
         List<Categories> categoriesList = context.Categories
-            .Where(c => c.game == game && c.name == name)
+            .Where(c => c.Game == game && c.Name == name)
             .ToList();
 
         if (await categoriesList.OnlyOneAsync(
-                $"Found a duplicate category `{name}` for the game `{game.title}`(`{game.game_id}`).")) {
+                $"Found a duplicate category `{name}` for the game `{game.Title}`(`{game.GameId}`).")) {
             output = categoriesList.First();
         }
             
@@ -208,7 +208,7 @@ public static class GameDataHandler {
 
         Users? output = null;
         List<Users> usersList = context.Users
-                .Where(u => u.discordUser_id == user.Id && u.server_id == guild.Id)
+                .Where(u => u.DiscordUserId == user.Id && u.ServerId == guild.Id)
                 .ToList();
 
         if (await usersList.OnlyOneAsync($"Found a duplicate user on the server {guild.Name} ")) {
@@ -235,8 +235,8 @@ public static class GameDataHandler {
         try {
             await using ServerDataContext context = new ServerDataContext();
             games = context.Games
-                .Where(g => g.server_id == guild.Id)
-                .Select(g => g.title)
+                .Where(g => g.ServerId == guild.Id)
+                .Select(g => g.Title)
                 .ToList();
         }
         catch (Exception ex) {
@@ -259,14 +259,16 @@ public static class GameDataHandler {
                 await using ServerDataContext context = new ServerDataContext();
 
                 // get the database UserId
-                int? userId = await member.getUserIdAsync( context);
+                int? userId = await member.getUserIdAsync(context);
                 
                 // if the id is null, the user doesn't exist
                 if (userId == null) {
                     return false;
                 }
 
-                List<Titles> TitleToDelete = context.Titles.Where(t => t.title == title && t.user_id == userId).ToList();
+                List<Titles> TitleToDelete = context.Titles
+                    .Where(t => t.Title == title && t.UserId == userId)
+                    .ToList();
 
 
                 if (!await TitleToDelete.OnlyOneAsync($"Duplicate Titles detected for title `{title}`!")) {
@@ -318,8 +320,8 @@ public static class GameDataHandler {
         
         // get titles attached to them
         List<string> titles = context.Titles
-            .Where(t => t.user_id == databaseUserId)
-            .Select(t => t.title)
+            .Where(t => t.UserId == databaseUserId)
+            .Select(t => t.Title)
             .ToList();
 
         return titles.ToArray();
@@ -335,12 +337,14 @@ public static class GameDataHandler {
 
         ServerDataContext context = new ServerDataContext();
 
-        List<Users> users = context.Titles.Where(t => t.title == title).Select(t => t.user).ToList();
+        List<Users> users = context.Titles.Where(t => t.Title == title)
+            .Select(t => t.Users)
+            .ToList();
 
         if (await users.OnlyOneAsync(
                 $"{users.Count} users have the title `{title}` on server {guild.Name}(`{guild.Id}`)!")) 
         {
-            ulong userId = users.First().discordUser_id;
+            ulong userId = users.First().DiscordUserId;
 
             return await guild.GetUserAsync(userId);
         }
@@ -366,8 +370,8 @@ public static class GameDataHandler {
 
         if (await member.Guild.GetMemberWithTitle(title) == null) {
             Titles newTitle = new Titles {
-                title = title,
-                user_id = databaseUserId
+                Title = title,
+                UserId = databaseUserId
             };
 
             context.Titles.Add(newTitle);
@@ -383,14 +387,14 @@ public static class GameDataHandler {
 
         ServerDataContext context = new ServerDataContext();
 
-        int numServers = context.Servers.Count(s => s.server_id == guild.Id);
+        int numServers = context.Servers.Count(s => s.ServerId == guild.Id);
 
         if (numServers == 0) {
-            Servers newServer = new Servers {
-                server_id = guild.Id
+            Servers newServers = new Servers {
+                ServerId = guild.Id
             };
 
-            context.Add(newServer);
+            context.Add(newServers);
 
             context.SaveChanges();
         }
@@ -403,11 +407,11 @@ public static class GameDataHandler {
 
         
         List<Servers> serverResults = context.Servers
-            .Where(s => s.server_id == guild.Id).ToList();
+            .Where(s => s.ServerId == guild.Id).ToList();
 
         if (await serverResults.OnlyOneAsync($"Found more than one server in the database for server_id == `{guild.Id}`")) {
 
-            Servers server = serverResults.First();
+            Servers servers = serverResults.First();
             
             
             // Use reflection to get property names and values dynamically
@@ -417,8 +421,8 @@ public static class GameDataHandler {
             foreach (PropertyInfo prop in properties) {
                 string columnName = prop.Name;
 
-                if (columnName != nameof(Servers.server_id)) {
-                    string value = prop.GetValue(server)?.ToString() ?? string.Empty;
+                if (columnName != nameof(Servers.ServerId)) {
+                    string value = prop.GetValue(servers)?.ToString() ?? string.Empty;
                     settings[columnName] = value;
                 }
             }
@@ -433,7 +437,7 @@ public static class GameDataHandler {
         foreach (PropertyInfo prop in properties) {
             string columnName = prop.Name;
 
-            if (columnName != nameof(Servers.server_id) && columnName == key) {
+            if (columnName != nameof(Servers.ServerId) && columnName == key) {
                 return prop.PropertyType;
             }
         }
@@ -476,7 +480,7 @@ public static class GameDataHandler {
         await using ServerDataContext context = new ServerDataContext();
         
         List<Servers> serverResults = context.Servers
-            .Where(s => s.server_id == guild.Id).ToList();
+            .Where(s => s.ServerId== guild.Id).ToList();
 
         if (!await serverResults.OnlyOneAsync(
                 $"Found more than one server in the database for server_id == `{guild.Id}`")) return null;
@@ -491,7 +495,7 @@ public static class GameDataHandler {
         foreach (PropertyInfo prop in properties) {
             string columnName = prop.Name;
 
-            if (columnName != nameof(Servers.server_id) && columnName == key) {
+            if (columnName != nameof(Servers.ServerId) && columnName == key) {
                 try {
                     prop.SetValue(server, value);
 
@@ -523,7 +527,7 @@ public static class GameDataHandler {
         await using ServerDataContext context = new ServerDataContext();
         
         // first we verify the game doesn't already exist.
-        int numGames = context.Games.Count(g => g.title == title && g.server_id == guild.Id);
+        int numGames = context.Games.Count(g => g.Title == title && g.ServerId == guild.Id);
         
         // the game already exists
         if (numGames == 1) {
@@ -538,9 +542,9 @@ public static class GameDataHandler {
         }
 
         // create a new game object
-        Games newGame = new Games {
-            server_id = guild.Id,
-            title = title
+        Game newGame = new Game {
+            ServerId = guild.Id,
+            Title = title
         };
         
         
@@ -559,7 +563,7 @@ public static class GameDataHandler {
     public static async Task<bool> RemoveGameAsync(this IGuild guild, string title) {
         await using ServerDataContext context = new ServerDataContext();
         
-        Games? game = await guild.GetGame(title, context);
+        Game? game = await guild.GetGame(title, context);
 
         if (game != null) {
             context.Games.Remove(game);
@@ -585,32 +589,32 @@ public static class GameDataHandler {
         await using ServerDataContext context = new ServerDataContext();
         
         // get the game
-        Games? game = await guild.GetGame(gameTitle, context);
+        Game? game = await guild.GetGame(gameTitle, context);
 
         if (game == null) {
             throw new InvalidOperationException("You should never see this message.");
         }
         
-        int numbCategories = context.Categories.Count(c => c.game == game && c.name == categoryName);
+        int numbCategories = context.Categories.Count(c => c.Game == game && c.Name == categoryName);
 
         if (numbCategories == 1) {
             return false;
         }
         else if (numbCategories > 1) {
             await Bot.LogAsync(LogSeverity.Critical,
-                $"Found a duplicate category `{categoryName} in game {game.title}(`{game.game_id}`)");
+                $"Found a duplicate category `{categoryName} in game {game.Title}(`{game.GameId}`)");
             return false;
         }
         else {
-            Categories newCategory = new Categories {
-                game = game,
-                game_id = game.game_id,
-                higherBetter = higherBetter,
-                name = categoryName,
-                unit = unit
+            Categories newCategories = new Categories {
+                Game = game,
+                GameId = game.GameId,
+                HigherBetter = higherBetter,
+                Name = categoryName,
+                Unit = unit
             };
 
-            context.Categories.Add(newCategory);
+            context.Categories.Add(newCategories);
             await context.SaveChangesAsync();
             return true;
         }
@@ -630,43 +634,43 @@ public static class GameDataHandler {
         
         await guild.AddUserAsync(user, context);
 
-        Games? game = await guild.GetGame(gameTitle, context);
+        Game? game = await guild.GetGame(gameTitle, context);
 
         if (game == null) {
             return null;
         }
         
-        List<Categories> categoriesList = await context.Categories.Where(c => c.game == game).ToListAsync();
+        List<Categories> categoriesList = await context.Categories.Where(c => c.Game == game).ToListAsync();
 
         Users? dbUser = await guild.GetDbUserAsync(user, context);
 
         if (dbUser == null) {
             return null;
         }
-        IQueryable<Scores> scoresListQueryable = context.Scores.Where(s => s.user == dbUser);
+        IQueryable<Score> scoresListQueryable = context.Scores.Where(s => s.Users == dbUser);
 
         foreach (Categories category in categoriesList) {
-            List<Scores> scoresList = await scoresListQueryable.Where(s => s.category == category).ToListAsync();
+            List<Score> scoresList = await scoresListQueryable.Where(s => s.Categories == category).ToListAsync();
                     
                     
             // freak out if there is a duplicate scores
             if (scoresList.Count > 1) {
                 await Bot.LogAsync(LogSeverity.Critical,
-                    $"Found {scoresList.Count} duplicate score(s) for {user.Username}(`{dbUser.user_id} in category " +
-                    $"{category.name}(`{category.category_id}`)");
+                    $"Found {scoresList.Count} duplicate score(s) for {user.Username}(`{dbUser.UserId} in category " +
+                    $"{category.Name}(`{category.CategoryId}`)");
                 return null;
             }
                     
             // if there is a score output it.
             else if (scoresList.Count == 1) {
-                Scores score = scoresList.First();
+                Score score = scoresList.First();
                         
-                result.Add($"**{category.name}** {user.Username}: {score.value} {category.unit}");
+                result.Add($"**{category.Name}** {user.Username}: {score.Value} {category.Unit}");
             }
             
             // if the user doesent have a score here, just output the category name.
             else {
-                result.Add($"**{category.name}**");
+                result.Add($"**{category.Name}**");
             }
                     
         }
@@ -699,16 +703,18 @@ public static class GameDataHandler {
         await using ServerDataContext context = new ServerDataContext();
         
 
-        Games? game = await guild.GetGame(gameTitle, context);
+        Game? game = await guild.GetGame(gameTitle, context);
 
         if (game == null) {
             return null;
         }
         
-        List<Categories> categoriesList = await context.Categories.Where(c => c.game == game).ToListAsync();
+        List<Categories> categoriesList = await context.Categories
+            .Where(c => c.Game == game)
+            .ToListAsync();
 
         foreach (Categories category in categoriesList) {
-            result.Add($"**{category.name}**");
+            result.Add($"**{category.Name}**");
         }
         
         return result;
@@ -727,7 +733,7 @@ public static class GameDataHandler {
         
 
         List<Categories> categories = await context.Categories
-            .Where(c=> c.game.title == gameTitle && c.name == categoryName)
+            .Where(c=> c.Game.Title == gameTitle && c.Name == categoryName)
             .ToListAsync();
 
         if (await categories.OnlyOneAsync(
@@ -752,13 +758,13 @@ public static class GameDataHandler {
         await using ServerDataContext context = new ServerDataContext();
 
         List<bool> SafeFlowOutput = context.Servers
-            .Where(s => s.server_id == guild.Id)
-            .Select(s => s.safeFlow).ToList();
+            .Where(s => s.ServerId == guild.Id)
+            .Select(s => s.SafeFlow).ToList();
 
         if (await SafeFlowOutput.OnlyOneAsync($"Found more than one server under server_id == {guild.Id}")) {
             return SafeFlowOutput.First();
         }
-
+        
         return null;
     }
 
@@ -768,18 +774,18 @@ public static class GameDataHandler {
         await guild.AddUserAsync(discordUser, Context);
         
         Users user = await Context.Users
-            .Where(u => u.server_id == guild.Id && u.discordUser_id == discordUser.Id)
+            .Where(u => u.ServerId == guild.Id && u.DiscordUserId == discordUser.Id)
             .FirstOrDefaultAsync();
 
         Categories? category = await Context.Categories
-            .Where(c => c.game.title == gameTitle && c.name == categoryName)
+            .Where(c => c.Game.Title == gameTitle && c.Name == categoryName)
             .FirstOrDefaultAsync();
 
         if (category != null) {
-            Scores newScore = new Scores {
-                user = user,
-                category = category,
-                value = value
+            Score newScore = new Score {
+                Users = user,
+                Categories = category,
+                Value = value
             };
 
             await Context.Scores.AddAsync(newScore);

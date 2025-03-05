@@ -16,6 +16,6 @@ public partial class MetricWeightSet
     [Column("name")]
     public string Name { get; set; } = null!;
 
-    [InverseProperty("PreferedWeightSet")]
-    public virtual ICollection<User> Users { get; set; } = new List<User>();
+    [InverseProperty("PreferredWeightSet")]
+    public virtual ICollection<Users> Users { get; set; } = new List<Users>();
 }
