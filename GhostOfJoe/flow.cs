@@ -8,18 +8,17 @@ namespace GhostOfJoe;
 public static class Flow {
     private static List<List<string>>? flow = new List<List<string>>();
     
-    private static async Task<string> GetRawPrivatePaste(string pasteKey, string userKey) {
-        using var client = new HttpClient();
+    public static async Task<string> GetRawPrivatePaste(string pasteKey, string userKey) {
+        using HttpClient client = new HttpClient();
         Debug.Assert(Bot.config != null, "Program.config != null");
-        var values = new FormUrlEncodedContent(new[]
-        {
+        FormUrlEncodedContent values = new FormUrlEncodedContent(new[] {
             new KeyValuePair<string, string>("api_dev_key", Bot.config.pasteApiKey),
             new KeyValuePair<string, string>("api_user_key", userKey),
             new KeyValuePair<string, string>("api_paste_key", pasteKey),
             new KeyValuePair<string, string>("api_option", "show_paste")
         });
 
-        var response = await client.PostAsync("https://pastebin.com/api/api_raw.php", values);
+        HttpResponseMessage response = await client.PostAsync("https://pastebin.com/api/api_raw.php", values);
 
         if (response.IsSuccessStatusCode){
             return await response.Content.ReadAsStringAsync();
@@ -28,7 +27,7 @@ public static class Flow {
         }
     }
     
-    private static async Task<string> GetUserKey() {
+    public static async Task<string> GetUserKey() {
         using HttpClient client = new HttpClient();
 
         Debug.Assert(Bot.config != null, "Program.config != null");
@@ -38,7 +37,7 @@ public static class Flow {
             new KeyValuePair<string, string>("api_user_password", Bot.config.pasteBinPassword)
         });
 
-        var response = await client.PostAsync("https://pastebin.com/api/api_login.php", values);
+        HttpResponseMessage response = await client.PostAsync("https://pastebin.com/api/api_login.php", values);
 
         if (response.IsSuccessStatusCode){
             string userKey = await response.Content.ReadAsStringAsync();

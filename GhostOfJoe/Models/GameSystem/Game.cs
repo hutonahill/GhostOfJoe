@@ -1,10 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using Microsoft.EntityFrameworkCore;
 
-namespace GhostOfJoe.Models;
+namespace GhostOfJoe.Models.GameSystem;
 
 [Table("games")]
 public partial class Game
@@ -18,11 +15,11 @@ public partial class Game
 
     [Column("title")]
     public string Title { get; set; } = null!;
-
-    [InverseProperty("Game")]
+    
+    [InverseProperty(nameof(GameSystem.Categories.Game))]
     public virtual ICollection<Categories> Categories { get; set; } = new List<Categories>();
 
-    [ForeignKey("ServerId")]
-    [InverseProperty("Games")]
+    [ForeignKey(nameof(ServerId))]
+    [InverseProperty(nameof(Servers.Games))]
     public virtual Servers Servers { get; set; } = null!;
 }

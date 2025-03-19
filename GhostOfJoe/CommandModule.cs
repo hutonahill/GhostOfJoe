@@ -97,7 +97,7 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
                 await RespondAsync($"**Games**:{gameListString}");
             }
             else {
-                await RespondAsync("No games available.");
+                await RespondAsync("Man. Doesn't look like you be playing any games. Get on that or something.");
             }
         }
         catch (Exception ex) {
@@ -263,7 +263,16 @@ public class CommandModule : InteractionModuleBase<SocketInteractionContext> {
         string result = Flow.CiteFlow(userMessage);
         await RespondAsync(result);
     }
-    
+
+    [SlashCommand("tell_me_a_joke", "tells a joke")]
+    public async Task TellJoke() {
+        ulong targetChannelId = Context.Channel.Id;
+        ITextChannel? channel = Context.Client.GetChannel(targetChannelId) as ITextChannel;
+        
+        Debug.Assert(channel != null, nameof(channel) + " != null");
+
+        await RespondAsync(Jokes.GetJoke());
+    }
     
     [SlashCommand("get_global_settings", "get a list of my global settings. Look don't touch.")]
     [RequireUserPermission((GuildPermission.Administrator))]

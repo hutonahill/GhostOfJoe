@@ -1,8 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
+﻿
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using Microsoft.EntityFrameworkCore;
+using GhostOfJoe.Models.GameSystem;
+using GhostOfJoe.Models.VoteDatabase;
+
 
 namespace GhostOfJoe.Models;
 
@@ -24,22 +25,23 @@ public partial class Users
 
     [Column("preferred_weight_set_id")]
     public int? PreferredWeightSetId { get; set; }
-
-    [ForeignKey("PreferredScoreSetId")]
-    [InverseProperty("Users")]
+    
+    
+    [ForeignKey(nameof(PreferredScoreSetId))]
+    [InverseProperty(nameof(VoteDatabase.MetricScoreSet.Users))]
     public virtual MetricScoreSet? PreferredScoreSet { get; set; }
 
-    [ForeignKey("PreferredWeightSetId")]
-    [InverseProperty("Users")]
+    [ForeignKey(nameof(PreferredWeightSetId))]
+    [InverseProperty(nameof(VoteDatabase.MetricWeightSet.Users))]
     public virtual MetricWeightSet? PreferredWeightSet { get; set; }
 
-    [InverseProperty("User")]
+    [InverseProperty(nameof(GameSystem.Score.Users))]
     public virtual ICollection<Score> Scores { get; set; } = new List<Score>();
-
-    [ForeignKey("ServerId")]
-    [InverseProperty("Users")]
+    
+    [ForeignKey(nameof(ServerId))]
+    [InverseProperty(nameof(Models.Servers.Users))]
     public virtual Servers Servers { get; set; } = null!;
 
-    [InverseProperty("User")]
+    [InverseProperty(nameof(Models.Titles.Users))]
     public virtual ICollection<Titles> Titles { get; set; } = new List<Titles>();
 }

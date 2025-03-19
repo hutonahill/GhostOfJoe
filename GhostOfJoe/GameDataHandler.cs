@@ -5,7 +5,8 @@ using Discord;
 using Discord.WebSocket;
 using GhostOfJoe.Data;
 using GhostOfJoe.Models;
-using Game = GhostOfJoe.Models.Game;
+using GhostOfJoe.Models.GameSystem;
+using Game = GhostOfJoe.Models.GameSystem.Game;
 
 
 namespace GhostOfJoe;
@@ -524,34 +525,42 @@ public static class GameDataHandler {
     /// <param name="description">unused. a description to the game.</param>
     /// <returns>False if the game already exists, True if the game has been added, and null for an error.</returns>
     public static async Task<bool> AddGame(this IGuild guild, string title, string description = "") {
-        await using ServerDataContext context = new ServerDataContext();
-        
-        // first we verify the game doesn't already exist.
-        int numGames = context.Games.Count(g => g.Title == title && g.ServerId == guild.Id);
-        
-        // the game already exists
-        if (numGames == 1) {
-            return false;
-        }
-        
-        // there is a duplicate freak out there should never be a duplicate.
-        else if (numGames > 1) {
-            await Bot.LogAsync(LogSeverity.Critical,
-                $"Found a duplicate game `{title}` for server {guild.Name}(`{guild.Id}`)");
-            return false;
-        }
 
-        // create a new game object
-        Game newGame = new Game {
-            ServerId = guild.Id,
-            Title = title
-        };
+        try {
+            await using ServerDataContext context = new ServerDataContext();
+
+            // first we verify the game doesn't already exist.
+            int numGames = context.Games.Count(g => g.Title == title && g.ServerId == guild.Id);
+
+            // the game already exists
+            if (numGames == 1) {
+                return false;
+            }
+
+            // there is a duplicate freak out there should never be a duplicate.
+            else if (numGames > 1) {
+                await Bot.LogAsync(LogSeverity.Critical,
+                    $"Found a duplicate game `{title}` for server {guild.Name}(`{guild.Id}`)");
+                return false;
+            }
+
+            // create a new game object
+            Game newGame = new Game {
+                ServerId = guild.Id,
+                Title = title
+            };
+
+
+            // add the new game object to the database and save the changes.
+            await context.Games.AddAsync(newGame);
+            await context.SaveChangesAsync();
+            return true;
+        }
+        catch (Exception e) {
+            await Bot.LogAsync(LogSeverity.Error, e.Message, e);
+            return false;
+        }
         
-        
-        // add the new game object to the database and save the changes.
-        await context.Games.AddAsync(newGame);
-        await context.SaveChangesAsync();
-        return true;
     }
     
     /// <summary>

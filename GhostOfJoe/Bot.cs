@@ -2,6 +2,7 @@
 using System.Globalization;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.ServiceProcess;
 using Discord;
 using Discord.Interactions;
 using Discord.WebSocket;
@@ -75,6 +76,8 @@ public class Bot : BackgroundService {
         
         // imports flow from pastebin.
         await Flow.ImportFlow();
+
+        await Jokes.ImportJokes();
 
         _interactionService.SlashCommandExecuted += HandleSlashCommandExecuted;
         _interactionService.Log += LogInternalAsync;
@@ -205,43 +208,197 @@ public class Bot : BackgroundService {
         Debug.Assert(_client != null, nameof(_client) + " != null");
         ITextChannel? channel = _client.GetChannel(config.LoggingChannel) as ITextChannel;
 
-        string ErrorMsg = "## Log: ";
-
-        if (!string.IsNullOrEmpty(log.Source)) {
-            ErrorMsg += $"\n### Source \n\t`{log.Source}` ";
-        }
-
-        if (log.Message != "") {
-            ErrorMsg += $"\n ### Log Message: \n``` {log.Message} ``` ";
-        }
-
-        if (log.Exception != null) {
-            ErrorMsg += $"\n### Exception Type: \n`{log.Exception.GetType().Name} ` " +
-                        $"\n### Exception Message: \n```\n{log.Exception.Message}\n``` " +
-                        $"\n### Callstack: \n```\n{log.Exception.StackTrace}\n``` ";
-        }
-
+        List<string> messageList = new List<string>();
+        
         if (log.Severity == LogSeverity.Critical) {
             SocketUser admin = _client.GetUser(config.AdminUser);
 
-           ErrorMsg = $"{admin.Mention}: \n{ErrorMsg}";
+            messageList.Add("{admin.Mention}: \n");
+        }
+        
+        messageList.Add("## Log: ");
+        
+        
+        
+
+        if (!string.IsNullOrEmpty(log.Source)) {
+            messageList.Add($"\n### Source \n\t`{log.Source}` ");
         }
 
+        if (log.Message != String.Empty) {
+            messageList.Add($"\n### Log Message: \n```\n {log.Message} \n``` ");
+        }
 
-        Debug.Assert(channel != null, nameof(channel) + " != null");
-        await SendMessageAsync(channel, ErrorMsg)!;
+        if (log.Exception != null) {
+            messageList.Add($"\n### Exception Type: \n`{log.Exception.GetType().Name} ` ");
+            messageList.Add($"\n### Exception Message: \n```\n{log.Exception.Message}\n```");
+            messageList.Add($"\n### Callstack: \n```\n{log.Exception.StackTrace}\n``` ");
+        }
 
-        Console.WriteLine(ErrorMsg);
+        
+
+        messageList.Add("\n===END LOG===\n"); 
+
+        if (channel != null) {
+            foreach (string part in messageList) {
+                await SendMessageAsync(channel, part)!;
+            }
+            
+            
+        }
+        else {
+            Console.WriteLine("Unable to Identify Channel.");
+        }
+        
+
+        Console.WriteLine(string.Join("", messageList));
     }
 
-    private static async Task SendMessageAsync(ITextChannel channel, string message) {
-        const int maxMessageLength = 2000;
-        
-        for (int i = 0; i < message.Length; i += maxMessageLength) {
-            string chunk = message.Substring(i, Math.Min(maxMessageLength, message.Length - i));
-            await channel.SendMessageAsync(chunk);
+    private static async Task SendMessageAsync(ITextChannel channel, string message, int maxMessageLength = 2000) {
+        const string codeWrapper = "```";
+
+        if (message.Length < maxMessageLength) {
+            await channel.SendMessageAsync(message);
         }
-        
+        else {
+            
+            // check if the message contains code
+            if (message.Contains(codeWrapper)) {
+                
+                // split the block on the code wrapper. 
+                // alternating block of code and not code.
+                List<string> blocks = message.Split(codeWrapper)
+                    .ToList();
+                
+                // the first block can be either text or code. Let's make a list of methods that handle them 
+                List<Func<ITextChannel, string, int, Task>> blockHandlers = [
+                    SendMessageAsync,
+                    SendCodeBlock
+                ];
+                
+                // now a var to store the current index.
+                int handleIndex = 0;
+                
+                // if the first block is null or empty then the code wrapper must be the first thing in 
+                // the message.
+                if (string.IsNullOrEmpty(blocks[1])) {
+                    handleIndex = 1;
+                }
+                
+                // loop though the blocks alternating type until you run out.
+                while (blocks.Count != 0) {
+                    
+                    string block = blocks.pop(0);
+                    
+                    // this settles the case of ```<code> ``` ``` <code>```
+                    if (!string.IsNullOrEmpty(block)) {
+                        await blockHandlers[handleIndex].Invoke(channel, block, maxMessageLength);
+                    }
+                    
+                    // flip the handle index
+                    if (handleIndex == 1) {
+                        handleIndex = 0;
+                    }
+                    else {
+                        handleIndex = 1;
+                    }
+                }
+            }
+        }
+    }
+
+    private static async Task SendCodeBlock(ITextChannel channel, string code, int maxMessageLength) {
+        await SendCodeBlock(channel, code, maxMessageLength, "```");
+    }
+
+    private static async Task SendCodeBlock(ITextChannel channel, string code, int maxMessageLength, string codeWrapper) {
+        maxMessageLength -= (2 * codeWrapper.Length);
+
+        if (code.Length > maxMessageLength) {
+            // add lines until we hit or go over the max message length.
+            string content = string.Empty;
+            
+            // let's break up the code into lines.
+            List<string> lines = code.Split("\n")
+                .ToList();
+            
+            while (lines.Count > 0) {
+                // if one line puts us over, we need to break the line up more. 
+                if (lines[0].Length > maxMessageLength && string.IsNullOrEmpty(content)) {
+                    
+                    string line = lines.pop(0);
+
+                    List<string> sentences = line.Split(". ")
+                        .ToList();
+
+                    sentences = sentences.Select(s => s + ". ")
+                        .ToList();
+                    
+
+                    while (sentences.Count > 0) {
+                        // one sentence puts us over.
+                        if (string.IsNullOrEmpty(content) && sentences[0].Length > maxMessageLength) {
+                            string sentence = sentences.pop(0);
+
+                            List<string> words = sentence.Split(" ")
+                                .Select(s => s + " ")
+                                .ToList();
+
+                            while (words.Count > 0) {
+                                // one word puts us over.
+                                if (string.IsNullOrEmpty(content) && words[0].Length > maxMessageLength) {
+                                    // fall back to the sentence level and print chars until the sentence is printed.
+                                    while (!string.IsNullOrEmpty(sentence)) {
+                                        content = sentence[..maxMessageLength];
+
+                                        sentence = sentence[maxMessageLength..];
+                                
+                                        await SendMessageAsync(channel, $"{codeWrapper}{content}{codeWrapper}");
+                                        content = "";
+                                    }
+                                }
+                                
+                                // adding one word would exceed limit, send.
+                                else if (content.Length + words[0].Length > maxMessageLength) {
+                                    await SendMessageAsync(channel, $"{codeWrapper}{content}{codeWrapper}");
+                                    content = "";
+                                }
+                                
+                                // add a word
+                                else {
+                                    content += words.pop(0);
+                                }
+                            }
+                            
+                            
+                        }
+                        // adding would exceed, send
+                        else if (content.Length + sentences[0].Length > maxMessageLength) {
+                            await SendMessageAsync(channel, $"{codeWrapper}{content}{codeWrapper}");
+                            content = "";
+                        }
+                        
+                        // add
+                        else {
+                            content = sentences.pop(0);
+                        }
+                    }
+                }
+                
+                // if adding the next thing will push us over the limit, send and reset.
+                else if (content.Length + lines[1].Length > maxMessageLength) {
+                    await SendMessageAsync(channel, $"{codeWrapper}{content}{codeWrapper}");
+                    content = "";
+                }
+                
+                else {
+                    content += "\n" + lines.pop(1);
+                }
+            }
+        }
+        else {
+            await SendMessageAsync(channel, $"{codeWrapper}{code}{codeWrapper}");
+        }
     }
     
     public static async Task LogAsync(LogSeverity severity, string message, Exception? exception = null,
@@ -304,5 +461,13 @@ public class Bot : BackgroundService {
             Console.WriteLine($"An unexpected error occurred: {e}");
             return key;
         }
+    }
+}
+
+public static class ListUtil {
+    public static T pop<T>(this List<T> list, int index = -1) {
+        T value = list[index];
+        list.RemoveAt(index);
+        return value;
     }
 }

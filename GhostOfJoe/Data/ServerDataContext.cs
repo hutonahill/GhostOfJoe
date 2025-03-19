@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Collections.Generic;
 using GhostOfJoe.Models;
+using GhostOfJoe.Models.GameSystem;
+using GhostOfJoe.Models.VoteDatabase;
 using Microsoft.EntityFrameworkCore;
 
 namespace GhostOfJoe.Data;

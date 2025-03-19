@@ -1,10 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
-using System.ComponentModel.DataAnnotations.Schema;
+﻿using System.ComponentModel.DataAnnotations.Schema;
 using Microsoft.EntityFrameworkCore;
 
-namespace GhostOfJoe.Models;
+namespace GhostOfJoe.Models.VoteDatabase;
 
 [Keyless]
 [Table("representitive_has_bills")]
@@ -19,10 +16,10 @@ public partial class RepresentitiveHasBill
     [Column("bill_id")]
     public int BillId { get; set; }
 
-    [ForeignKey("BillId")]
+    [ForeignKey(nameof(VoteDatabase.Bill.BillId))]
     public virtual Bill Bill { get; set; } = null!;
 
-    [ForeignKey("RepId")]
+    [ForeignKey(nameof(Representitive.RepId))]
     public virtual Representitive Rep { get; set; } = null!;
 
     [ForeignKey("VoteTypeId")]

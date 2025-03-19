@@ -1,13 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using Microsoft.EntityFrameworkCore;
 
-namespace GhostOfJoe.Models;
+namespace GhostOfJoe.Models.VoteDatabase;
 
 [Table("metric_score_set")]
-public partial class MetricScoreSet
+public sealed partial class MetricScoreSet
 {
     [Key]
     [Column("score_set_id")]
@@ -15,7 +12,8 @@ public partial class MetricScoreSet
 
     [Column("name")]
     public string Name { get; set; } = null!;
-
-    [InverseProperty("PreferredScoreSet")]
-    public virtual ICollection<Users> Users { get; set; } = new List<Users>();
+    
+    
+    [InverseProperty(nameof(Models.Users.PreferredScoreSet))]
+    public ICollection<Users> Users { get; set; } = new List<Users>();
 }

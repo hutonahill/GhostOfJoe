@@ -35,6 +35,8 @@ public class DiscordOptions {
 
     public string flowPasteKey { get; set; } = "taDVgTGF";
 
+    public string jokePasteKey { get; set; } = "LHU6giXy";
+
     public List<ulong> BlacklistedUsers { get; set; } = new();
 
     //                              my personal server,  The party bus

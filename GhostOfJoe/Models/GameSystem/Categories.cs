@@ -1,10 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using Microsoft.EntityFrameworkCore;
 
-namespace GhostOfJoe.Models;
+namespace GhostOfJoe.Models.GameSystem;
 
 [Table("categories")]
 public partial class Categories
@@ -25,10 +22,10 @@ public partial class Categories
     [Column("higherBetter")]
     public bool HigherBetter { get; set; }
 
-    [ForeignKey("GameId")]
-    [InverseProperty("Categories")]
+    [ForeignKey(nameof(GameId))]
+    [InverseProperty(nameof(GameSystem.Game.Categories))]
     public virtual Game Game { get; set; } = null!;
 
-    [InverseProperty("Category")]
+    [InverseProperty(nameof(Score.Categories))]
     public virtual ICollection<Score> Scores { get; set; } = new List<Score>();
 }

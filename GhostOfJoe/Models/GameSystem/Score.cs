@@ -1,10 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.ComponentModel.DataAnnotations;
+﻿using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using Microsoft.EntityFrameworkCore;
 
-namespace GhostOfJoe.Models;
+namespace GhostOfJoe.Models.GameSystem;
 
 [Table("scores")]
 public partial class Score
@@ -21,12 +18,14 @@ public partial class Score
 
     [Column("user_id")]
     public int UserId { get; set; }
-
-    [ForeignKey("CategoryId")]
-    [InverseProperty("Scores")]
+    
+    
+    
+    [ForeignKey(nameof(CategoryId))]
+    [InverseProperty(nameof(GameSystem.Categories.Scores))]
     public virtual Categories Categories { get; set; } = null!;
 
-    [ForeignKey("UserId")]
-    [InverseProperty("Scores")]
+    [ForeignKey(nameof(UserId))]
+    [InverseProperty(nameof(Models.Users.Scores))]
     public virtual Users Users { get; set; } = null!;
 }

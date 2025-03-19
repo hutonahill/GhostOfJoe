@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
+using GhostOfJoe.Models.GameSystem;
 using Microsoft.EntityFrameworkCore;
 
 namespace GhostOfJoe.Models;
@@ -15,10 +16,12 @@ public partial class Servers
 
     [Column("safeFlow")]
     public bool SafeFlow { get; set; }
-
-    [InverseProperty("Server")]
+    
+    
+    
+    [InverseProperty(nameof(GameSystem.Game.Servers))]
     public virtual ICollection<Game> Games { get; set; } = new List<Game>();
 
-    [InverseProperty("Server")]
+    [InverseProperty(nameof(Models.Users.Servers))]
     public virtual ICollection<Users> Users { get; set; } = new List<Users>();
 }
